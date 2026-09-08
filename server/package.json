@@ -1,0 +1,13 @@
+{
+  "name": "taskquad-server",
+  "version": "1.1.0",
+  "description": "TaskQuad 四象限任务管理 - 服务端核心（存储 + REST API + 提醒调度）",
+  "main": "src/server.js",
+  "private": true,
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

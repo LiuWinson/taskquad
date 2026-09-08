@@ -1,0 +1,24 @@
+node_modules/
+web/dist/
+server/data/
+desktop/dist*/
+desktop/out/
+*.log
+.DS_Store
+
+# 本地 npm/electron 缓存（沙箱内重定向）
+**/.npm-cache/
+.electron-cache/
+.builder-cache/
+**/.localappdata/
+
+# 鸿蒙工程构建产物
+harmonyos/.hvigor/
+harmonyos/oh_modules/
+harmonyos/build/
+harmonyos/local.properties
+harmonyos/.idea/
+harmonyos/entry/build/
+harmonyos/entry/oh_modules/
+harmonyos/entry/.preview/
+harmonyos/entry/src/ohosTest/

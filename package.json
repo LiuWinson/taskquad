@@ -1,0 +1,13 @@
+{
+  "name": "taskquad",
+  "version": "1.1.0",
+  "description": "任务四象限 - Windows 桌面 + 鸿蒙手机双端任务管理",
+  "private": true,
+  "scripts": {
+    "server": "node server/src/index.js",
+    "web:dev": "npm --prefix web run dev",
+    "web:build": "npm --prefix web run build",
+    "desktop": "npm --prefix desktop run start",
+    "build": "npm run web:build"
+  }
+}

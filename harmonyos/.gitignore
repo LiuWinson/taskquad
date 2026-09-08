@@ -1,0 +1,9 @@
+# 鸿蒙工程本地构建产物与 IDE 文件
+/node_modules
+/oh_modules
+/local.properties
+/.idea
+**/build
+**/.preview
+/.hvigor
+**/oh_modules

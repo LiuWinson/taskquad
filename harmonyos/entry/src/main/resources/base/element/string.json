@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "任务四象限主模块"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "任务四象限"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "任务四象限"
+    }
+  ]
+}
