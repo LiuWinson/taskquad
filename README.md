@@ -4,6 +4,12 @@
 
 > ⚖️ **许可证**：本仓库代码公开可见，但为**专有软件（All Rights Reserved）**，未授予任何使用/复制/修改/分发许可，详见 [LICENSE](LICENSE)。
 
+## 📥 直接下载安装（无需构建）
+
+- **Windows 安装包**：https://github.com/LiuWinson/taskquad/releases/latest → 下载 `TaskQuad-Setup-1.1.0.exe`，双击安装即用（首次启动如遇 SmartScreen 提示，点「更多信息 → 仍要运行」）。
+- 覆盖安装新版本**不会清除数据**；卸载程序也不会删除数据。
+- 鸿蒙端目前需按下方说明用 DevEco Studio 自行构建（见 [harmonyos/README-build.md](harmonyos/README-build.md)）。
+
 ## 功能特性
 
 - 任务记录：标题、备注、四象限标签、需要完成的时间、提醒时间
