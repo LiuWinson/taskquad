@@ -26,6 +26,18 @@ export interface Task {
   planProgress: number | null;
   /** 计划结束待反馈通知是否已发 */
   planEndNotified: boolean;
+  /** 循环类型：none/daily/weekly/monthly/quarterly */
+  repeat: RepeatType;
+  /** 循环任务按日期的完成记录：{ 'YYYY-MM-DD': { completed?, progress?, notified? } } */
+  occurrences: Record<string, Occurrence>;
+}
+
+export type RepeatType = 'none' | 'daily' | 'weekly' | 'monthly' | 'quarterly';
+
+export interface Occurrence {
+  completed?: boolean;
+  progress?: number;
+  notified?: boolean;
 }
 
 export interface Quadrant {

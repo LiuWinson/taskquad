@@ -164,7 +164,12 @@ async function planSchedule(taskId: string, planDate: string, start: number, end
 
 async function planMoveBlock(taskId: string, planDate: string, start: number, end: number) {
   try {
-    await updateTask(taskId, { planDate, planStart: start, planEnd: end });
+    const t = tasks.value.find((x) => x.id === taskId);
+    // 循环任务移动只改时间段，保持基准日不变
+    const patch: TaskPatch = t && t.repeat && t.repeat !== 'none'
+      ? { planStart: start, planEnd: end }
+      : { planDate, planStart: start, planEnd: end };
+    await updateTask(taskId, patch);
     await reload();
   } catch (e) {
     notify(e instanceof Error ? e.message : '调整时间段失败');
@@ -174,7 +179,11 @@ async function planMoveBlock(taskId: string, planDate: string, start: number, en
 async function planMoveBlocks(moves: { id: string; start: number; end: number }[]) {
   try {
     for (const mv of moves) {
-      await updateTask(mv.id, { planStart: mv.start, planEnd: mv.end });
+      const t = tasks.value.find((x) => x.id === mv.id);
+      const patch: TaskPatch = t && t.repeat && t.repeat !== 'none'
+        ? { planStart: mv.start, planEnd: mv.end }
+        : { planStart: mv.start, planEnd: mv.end };
+      await updateTask(mv.id, patch);
     }
     notify(`已整体调整 ${moves.length} 个任务`);
     await reload();
@@ -190,6 +199,46 @@ async function planSetProgress(taskId: string, progress: number | null) {
     await reload();
   } catch (e) {
     notify(e instanceof Error ? e.message : '保存进度失败');
+  }
+}
+
+async function planSetRepeat(taskId: string, repeat: string) {
+  try {
+    await updateTask(taskId, { repeat });
+    notify(repeat === 'none' ? '已取消循环' : '循环设置已保存');
+    await reload();
+  } catch (e) {
+    notify(e instanceof Error ? e.message : '循环设置失败');
+  }
+}
+
+async function planOccProgress(taskId: string, date: string, progress: number | null) {
+  try {
+    await updateTask(taskId, { occurrenceDate: date, occurrenceProgress: progress });
+    notify('本次进度已保存');
+    await reload();
+  } catch (e) {
+    notify(e instanceof Error ? e.message : '保存进度失败');
+  }
+}
+
+async function planOccComplete(taskId: string, date: string, done: boolean) {
+  try {
+    await updateTask(taskId, { occurrenceDate: date, occurrenceCompleted: done });
+    notify(done ? '本次已完成 ✓' : '已撤销本次完成');
+    await reload();
+  } catch (e) {
+    notify(e instanceof Error ? e.message : '操作失败');
+  }
+}
+
+async function planStopRepeat(taskId: string) {
+  try {
+    await updateTask(taskId, { repeat: 'none', planDate: null });
+    notify('已停止循环并移出计划');
+    await reload();
+  } catch (e) {
+    notify(e instanceof Error ? e.message : '操作失败');
   }
 }
 
@@ -293,6 +342,10 @@ const settingsOpen = ref(false);
           @complete="planComplete"
           @remove-plan="planRemove"
           @edit="openEdit"
+          @set-repeat="planSetRepeat"
+          @occ-progress="planOccProgress"
+          @occ-complete="planOccComplete"
+          @stop-repeat="planStopRepeat"
         />
       </main>
 
@@ -306,6 +359,10 @@ const settingsOpen = ref(false);
           @complete="planComplete"
           @remove-plan="planRemove"
           @edit="openEdit"
+          @set-repeat="planSetRepeat"
+          @occ-progress="planOccProgress"
+          @occ-complete="planOccComplete"
+          @stop-repeat="planStopRepeat"
         />
       </aside>
     </div>

@@ -39,7 +39,9 @@
   "planStart": 540,
   "planEnd": 630,
   "planProgress": 60,
-  "planEndNotified": false
+  "planEndNotified": false,
+  "repeat": "daily",
+  "occurrences": { "2026-10-16": { "completed": true, "progress": 60, "notified": true } }
 }
 ```
 
@@ -47,8 +49,11 @@
 - **每日计划字段**（1.2.0 新增，旧数据自动补默认值）：
   - `planDate`：计划日期 `YYYY-MM-DD`（本地时区），`null` = 未排入计划。
   - `planStart` / `planEnd`：当天分钟数（0..1440），必须是 **30 的倍数**，且 `planEnd > planStart`。
-  - `planProgress`：完成百分比反馈 0..100（整数），`null` = 未反馈。任务可被排入计划多次，每次变更时间段后重置为 `null`。
+  - `planProgress`：完成百分比反馈 0..100（整数），`null` = 未反馈。任务可被排入计划多次，每次变更时间段后重置为 `null`。（循环任务不使用此字段，用 `occurrences` 按天记录。）
   - `planEndNotified`：计划结束“待反馈”通知是否已发（内部字段）。
+- **循环任务字段**（1.3.0 新增，旧数据自动补默认值）：
+  - `repeat`：`none | daily | weekly | monthly | quarterly`。`planDate` 为基准日（锚点）；命中规则：daily=每天；weekly=同星期几；monthly=同号（目标月不足时取月末，如 31 日 → 2 月 28/29 日）；quarterly=同号且同季（1/4/7/10 月起）。
+  - `occurrences`：按日期记录的当天完成状态 `{ "YYYY-MM-DD": { completed?, progress?, notified? } }`。循环任务每天的完成/反馈互不影响；任务本体保持未完成（在四象限中持续循环），要停止循环设置 `repeat: none`。
 
 ## 3. 接口列表
 
@@ -107,6 +112,11 @@
   - `planStart`/`planEnd`：`null` 清除；数值必须是 30 的倍数（0..1440），`planEnd > planStart`，否则 `400`。若提交时 `planDate` 为空则自动使用**当天**。
   - `planDate`/`planStart`/`planEnd` 任一发生变化 → `planProgress` 重置为 `null`、`planEndNotified` 重置为 `false`（重新排期后需重新反馈）。
   - `planProgress`：`null` 清除；数值需在 0..100（四舍五入取整），否则 `400`。
+- **循环字段**：
+  - `repeat`：`none/daily/weekly/monthly/quarterly`，非法值 `400`。
+  - `occurrenceDate` + `occurrenceCompleted`：写入/撤销某天的完成记录（循环任务按天完结，不影响任务本体）。
+  - `occurrenceDate` + `occurrenceProgress`：写入/清除某天的完成百分比（0..100，否则 `400`）。
+  - `occurrenceDate` + `occurrenceNotified`：标记某天“计划结束待反馈”通知已发（服务端内部使用）。
 - 不存在的 id 响应 `404 { "error": "任务不存在" }`。
 - 响应 `200`：`{ "task": Task }`
 
@@ -140,6 +150,7 @@
 - 命中后：触发一次提醒回调（Electron 弹桌面通知），并把该任务的 `remindedAt` 置为 `remindAt`。
 - 重启服务后已提醒过的任务不会重复提醒（因为 `remindedAt === remindAt`）。
 - **每日计划结束待反馈**：任务 `planDate` 为今天且 `planEnd <= 当前分钟`、未完成、未反馈（`planProgress == null`）、未通知过 → 触发一次回调（`kind: 'planEnd'`，桌面端弹「时间段已结束，请反馈完成情况」），并置 `planEndNotified = true`。修改时间段后重置为 `false`，可再次提醒。
+- **循环任务计划结束待反馈（按天）**：`repeat != none` 且今天命中循环规则、`planEnd <= 当前分钟`、当天记录未完成/未反馈/未通知 → 触发一次 `planEnd` 回调，并置 `occurrences[今天].notified = true`（第二天可再次提醒）。
 - 鸿蒙端提醒由鸿蒙 App 本地调度（见 harmonyos 说明），服务端只负责桌面端。
 
 ## 5. 版本与兼容

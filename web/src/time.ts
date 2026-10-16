@@ -109,3 +109,48 @@ export function isToday(dueAt: string | null): boolean {
   const d = new Date(dueAt);
   return isValid(d) && isSameLocalDay(d, new Date());
 }
+
+// ---------- 循环任务 ----------
+
+export function lastDayOfMonth(y: number, m: number): number {
+  return new Date(y, m + 1, 0).getDate();
+}
+
+/** 循环规则匹配：anchorDate 为基准日，dateStr 是否命中
+ *  （monthly/quarterly 的日按目标月最后一天截断） */
+export function matchesRepeat(anchorDate: string | null, repeat: string, dateStr: string): boolean {
+  if (repeat === 'none' || !anchorDate) return false;
+  const a = new Date(anchorDate + 'T00:00:00');
+  const d = new Date(dateStr + 'T00:00:00');
+  if (!isValid(a) || !isValid(d)) return false;
+  if (d.getTime() < a.getTime()) return false;
+  const day = Math.min(a.getDate(), lastDayOfMonth(d.getFullYear(), d.getMonth()));
+  switch (repeat) {
+    case 'daily':
+      return true;
+    case 'weekly':
+      return d.getDay() === a.getDay();
+    case 'monthly':
+      return d.getDate() === day;
+    case 'quarterly':
+      return d.getMonth() % 3 === a.getMonth() % 3 && d.getDate() === day;
+    default:
+      return false;
+  }
+}
+
+/** 循环类型中文标签（none 返回空串） */
+export function repeatLabel(repeat: string): string {
+  switch (repeat) {
+    case 'daily':
+      return '每天';
+    case 'weekly':
+      return '每周';
+    case 'monthly':
+      return '每月';
+    case 'quarterly':
+      return '每季度';
+    default:
+      return '';
+  }
+}

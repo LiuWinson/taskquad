@@ -5,6 +5,7 @@ const path = require('path');
 const crypto = require('crypto');
 
 const QUADRANTS = ['IU', 'IN', 'NU', 'NN'];
+const REPEATS = ['none', 'daily', 'weekly', 'monthly', 'quarterly'];
 const SCHEMA_VERSION = 1;
 const MAX_BACKUPS = 30;
 
@@ -22,6 +23,35 @@ function nowLocalMinutes(d = new Date()) {
 /** 计划时间必须是 0..1440 内 30 的倍数 */
 function validSlotMinutes(v) {
   return Number.isInteger(v) && v >= 0 && v <= 1440 && v % 30 === 0;
+}
+
+function lastDayOfMonth(y, m) {
+  return new Date(y, m + 1, 0).getDate();
+}
+
+/**
+ * 循环任务规则匹配：anchorDate 为基准日，dateStr 是否命中
+ * （monthly/quarterly 的日按目标月最后一天截断，如每月 31 日 → 2 月 28/29 日）
+ */
+function matchesRepeatDate(anchorDate, repeat, dateStr) {
+  if (repeat === 'none' || !anchorDate) return false;
+  const a = new Date(anchorDate + 'T00:00:00');
+  const d = new Date(dateStr + 'T00:00:00');
+  if (Number.isNaN(a.getTime()) || Number.isNaN(d.getTime())) return false;
+  if (d.getTime() < a.getTime()) return false;
+  const day = Math.min(a.getDate(), lastDayOfMonth(d.getFullYear(), d.getMonth()));
+  switch (repeat) {
+    case 'daily':
+      return true;
+    case 'weekly':
+      return d.getDay() === a.getDay();
+    case 'monthly':
+      return d.getDate() === day;
+    case 'quarterly':
+      return d.getMonth() % 3 === a.getMonth() % 3 && d.getDate() === day;
+    default:
+      return false;
+  }
 }
 
 /**
@@ -117,6 +147,25 @@ class TaskStore {
       if (typeof t.planProgress !== 'number' || !Number.isFinite(t.planProgress)) t.planProgress = null;
       else t.planProgress = Math.max(0, Math.min(100, Math.round(t.planProgress)));
       if (typeof t.planEndNotified !== 'boolean') t.planEndNotified = false;
+      // 循环任务字段（1.3.0 新增）：旧数据补默认值
+      if (!REPEATS.includes(t.repeat)) t.repeat = 'none';
+      if (typeof t.occurrences !== 'object' || t.occurrences == null || Array.isArray(t.occurrences)) {
+        t.occurrences = {};
+      }
+      for (const d of Object.keys(t.occurrences)) {
+        const occ = t.occurrences[d];
+        if (typeof occ !== 'object' || occ == null) {
+          delete t.occurrences[d];
+          continue;
+        }
+        if (typeof occ.completed !== 'boolean') delete occ.completed;
+        if (typeof occ.progress === 'number' && Number.isFinite(occ.progress)) {
+          occ.progress = Math.max(0, Math.min(100, Math.round(occ.progress)));
+        } else {
+          delete occ.progress;
+        }
+        if (typeof occ.notified !== 'boolean') delete occ.notified;
+      }
       if (!t.id || !t.title || !QUADRANTS.includes(t.quadrant)) {
         // 极端异常记录：补最小可用字段，不丢数据
         t.id = t.id || crypto.randomUUID();
@@ -180,6 +229,8 @@ class TaskStore {
       planEnd: null,
       planProgress: null,
       planEndNotified: false,
+      repeat: 'none',
+      occurrences: {},
     };
     this.tasks.push(task);
     this._save();
@@ -198,10 +249,29 @@ class TaskStore {
     const task = this.get(id);
     if (!task) return null;
     const allowed = ['title', 'note', 'quadrant', 'dueAt', 'remindAt', 'completed', 'order',
-      'planDate', 'planStart', 'planEnd', 'planProgress'];
+      'planDate', 'planStart', 'planEnd', 'planProgress', 'repeat',
+      'occurrenceDate', 'occurrenceCompleted', 'occurrenceProgress', 'occurrenceNotified'];
     const oldDate = task.planDate;
     const oldStart = task.planStart;
     const oldEnd = task.planEnd;
+
+    // 循环字段与当日完成记录预校验
+    let propRepeat = 'repeat' in patch ? patch.repeat : task.repeat;
+    if (!REPEATS.includes(propRepeat)) throw new Error('无效的循环类型');
+    const occDate = 'occurrenceDate' in patch ? patch.occurrenceDate : null;
+    if (occDate != null) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(occDate))) throw new Error('无效的完成记录日期');
+    }
+    let propOccCompleted = 'occurrenceCompleted' in patch ? !!patch.occurrenceCompleted : null;
+    let propOccProgress = 'occurrenceProgress' in patch ? patch.occurrenceProgress : undefined;
+    if (propOccProgress != null) {
+      propOccProgress = Number(propOccProgress);
+      if (!Number.isFinite(propOccProgress) || propOccProgress < 0 || propOccProgress > 100) {
+        throw new Error('完成百分比必须在 0-100 之间');
+      }
+      propOccProgress = Math.round(propOccProgress);
+    }
+    const propOccNotified = 'occurrenceNotified' in patch ? !!patch.occurrenceNotified : null;
 
     // 计划字段整体预校验（开始/结束同时提交时按新值成对校验，避免"拖动整体调整"被旧值误判）
     const clearPlan = 'planDate' in patch && patch.planDate == null;
@@ -263,6 +333,22 @@ class TaskStore {
         if (task.planEnd != null && !task.planDate) task.planDate = todayLocalDate();
       } else if (key === 'planProgress') {
         task.planProgress = propProgress;
+      } else if (key === 'repeat') {
+        task.repeat = propRepeat;
+      } else if (key === 'occurrenceDate') {
+        if (occDate != null) {
+          if (!task.occurrences || typeof task.occurrences !== 'object') task.occurrences = {};
+          if (!task.occurrences[occDate]) task.occurrences[occDate] = {};
+        }
+      } else if (key === 'occurrenceCompleted') {
+        if (occDate != null) task.occurrences[occDate].completed = propOccCompleted;
+      } else if (key === 'occurrenceProgress') {
+        if (occDate != null) {
+          if (propOccProgress == null) delete task.occurrences[occDate].progress;
+          else task.occurrences[occDate].progress = propOccProgress;
+        }
+      } else if (key === 'occurrenceNotified') {
+        if (occDate != null) task.occurrences[occDate].notified = propOccNotified;
       }
     }
     if (clearPlan) {
@@ -302,6 +388,17 @@ class TaskStore {
     this._save();
   }
 
+  /** 循环任务：标记某天的"计划结束待反馈"通知已发 */
+  markOccurrenceNotified(id, date) {
+    const task = this.get(id);
+    if (!task) return;
+    if (!task.occurrences || typeof task.occurrences !== 'object') task.occurrences = {};
+    if (!task.occurrences[date]) task.occurrences[date] = {};
+    task.occurrences[date].notified = true;
+    task.updatedAt = new Date().toISOString();
+    this._save();
+  }
+
   /** 指定周期内已完成的任务（按 completedAt 降序） */
   archive(period) {
     const now = new Date();
@@ -324,4 +421,4 @@ class TaskStore {
   }
 }
 
-module.exports = { TaskStore, QUADRANTS, todayLocalDate, nowLocalMinutes, validSlotMinutes };
+module.exports = { TaskStore, QUADRANTS, REPEATS, todayLocalDate, nowLocalMinutes, validSlotMinutes, matchesRepeatDate };

@@ -1,6 +1,6 @@
 {
   "name": "taskquad-desktop",
-  "version": "1.2.8",
+  "version": "1.3.0",
   "description": "任务四象限 Windows 桌面端（内置局域网同步服务）",
   "author": "taskquad",
   "main": "src/main.js",

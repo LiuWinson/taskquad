@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import type { Task } from '../types';
+import type { Task, RepeatType } from '../types';
 import { quadrantOf } from '../types';
+import { matchesRepeat, repeatLabel } from '../time';
 import { setDrag, getDrag, clearDrag as clearBus } from '../dragBus';
 
 const props = defineProps<{
@@ -16,7 +17,19 @@ const emit = defineEmits<{
   complete: [taskId: string];
   removePlan: [taskId: string];
   edit: [task: Task];
+  setRepeat: [taskId: string, repeat: RepeatType];
+  occProgress: [taskId: string, date: string, progress: number | null];
+  occComplete: [taskId: string, date: string, done: boolean];
+  stopRepeat: [taskId: string];
 }>();
+
+const REPEAT_OPTIONS: { value: RepeatType; label: string }[] = [
+  { value: 'none', label: '不循环' },
+  { value: 'daily', label: '每天' },
+  { value: 'weekly', label: '每周' },
+  { value: 'monthly', label: '每月' },
+  { value: 'quarterly', label: '每季度' },
+];
 
 const SLOT_H = 28; // 每个半小时槽位像素高度
 const DAY_START = 420; // 工作时间轴起点 07:00（分钟）
@@ -56,12 +69,36 @@ const dayBlocks = computed<Task[]>(() =>
     .filter(
       (t) =>
         !t.completed &&
-        t.planDate === dateStr.value &&
+        t.planDate &&
         typeof t.planStart === 'number' &&
-        typeof t.planEnd === 'number',
+        typeof t.planEnd === 'number' &&
+        (t.repeat && t.repeat !== 'none'
+          ? matchesRepeat(t.planDate, t.repeat, dateStr.value)
+          : t.planDate === dateStr.value),
     )
     .sort((a, b) => (a.planStart! - b.planStart!) || a.order - b.order),
 );
+
+/** 循环任务：当天的完成记录 */
+function occurrenceOf(t: Task): { completed?: boolean; progress?: number; notified?: boolean } {
+  const map = (t.occurrences || {}) as Record<string, { completed?: boolean; progress?: number; notified?: boolean }>;
+  return map[dateStr.value] || {};
+}
+
+/** 该块在当天是否已完成（循环任务按当天记录，非循环按任务本体） */
+function blockDone(t: Task): boolean {
+  if (t.repeat && t.repeat !== 'none') return !!occurrenceOf(t).completed;
+  return t.completed;
+}
+
+/** 块显示的进度：循环任务取当天记录，非循环取任务本体 */
+function occProgressOf(t: Task): number | null {
+  if (t.repeat && t.repeat !== 'none') {
+    const occ = occurrenceOf(t);
+    return typeof occ.progress === 'number' ? occ.progress : null;
+  }
+  return t.planProgress;
+}
 
 /** 该分钟是否有计划块覆盖（用于冲突检测） */
 function blockCovering(min: number, excludeId: string | null = null): Task | null {
@@ -78,13 +115,13 @@ const nowMin = computed(() => {
 });
 
 function isPending(t: Task): boolean {
-  return (
-    isToday.value &&
-    !t.completed &&
-    t.planProgress == null &&
-    typeof t.planEnd === 'number' &&
-    t.planEnd <= nowMin.value
-  );
+  if (typeof t.planEnd !== 'number' || t.planEnd > nowMin.value || !isToday.value) return false;
+  if (blockDone(t)) return false;
+  if (t.repeat && t.repeat !== 'none') {
+    const occ = occurrenceOf(t);
+    return occ.progress == null;
+  }
+  return t.planProgress == null;
 }
 
 // ---------- Ctrl 多选 ----------
@@ -402,12 +439,19 @@ const editing = ref<Task | null>(null);
 const editStart = ref(0);
 const editEnd = ref(30);
 const editProgress = ref(50);
+const editRepeat = ref<RepeatType>('none');
 
 function openEditor(t: Task) {
   editing.value = t;
   editStart.value = t.planStart ?? 0;
   editEnd.value = t.planEnd ?? (t.planStart ?? 0) + 30;
-  editProgress.value = t.planProgress ?? 50;
+  if (t.repeat && t.repeat !== 'none') {
+    const occ = occurrenceOf(t);
+    editProgress.value = occ.progress ?? 50;
+  } else {
+    editProgress.value = t.planProgress ?? 50;
+  }
+  editRepeat.value = (t.repeat ?? 'none') as RepeatType;
 }
 function closeEditor() {
   editing.value = null;
@@ -432,17 +476,42 @@ function saveRange() {
 }
 function saveProgress() {
   if (!editing.value) return;
-  emit('setProgress', editing.value.id, editProgress.value);
+  const t = editing.value;
+  if (t.repeat && t.repeat !== 'none') {
+    emit('occProgress', t.id, dateStr.value, editProgress.value);
+  } else {
+    emit('setProgress', t.id, editProgress.value);
+  }
   closeEditor();
 }
 function doComplete() {
   if (!editing.value) return;
-  emit('complete', editing.value.id);
+  const t = editing.value;
+  if (t.repeat && t.repeat !== 'none') {
+    emit('occComplete', t.id, dateStr.value, true);
+  } else {
+    emit('complete', t.id);
+  }
+  closeEditor();
+}
+function doUndoComplete() {
+  if (!editing.value) return;
+  emit('occComplete', editing.value.id, dateStr.value, false);
+  closeEditor();
+}
+function saveRepeat() {
+  if (!editing.value) return;
+  emit('setRepeat', editing.value.id, editRepeat.value);
   closeEditor();
 }
 function doRemovePlan() {
   if (!editing.value) return;
-  emit('removePlan', editing.value.id);
+  const t = editing.value;
+  if (t.repeat && t.repeat !== 'none') {
+    emit('stopRepeat', t.id); // 停止循环并移出计划
+  } else {
+    emit('removePlan', t.id);
+  }
   closeEditor();
 }
 function doEditTask() {
@@ -587,6 +656,7 @@ function blockRect(t: Task): { top: string; height: string; hidden: boolean } {
           class="plan-block"
           :class="{
             'plan-pending': isPending(t),
+            'plan-done': blockDone(t),
             'plan-resizing': resizing && resizing.id === t.id,
             'plan-selected': isSelected(t.id),
             'batch-source': batchPreview && batchPreview.ids.includes(t.id),
@@ -605,10 +675,14 @@ function blockRect(t: Task): { top: string; height: string; hidden: boolean } {
             @pointerup="onHandleUp"
             @pointercancel="onHandleCancel"
           ></div>
-          <span class="plan-block-title">{{ t.title }}</span>
+          <span class="plan-block-title">
+            <template v-if="t.repeat && t.repeat !== 'none'">🔁 </template>{{ t.title }}
+          </span>
           <span class="plan-block-meta">
             {{ fmtMin(t.planStart!) }}-{{ fmtMin(t.planEnd!) }}
-            <template v-if="t.planProgress != null"> · {{ t.planProgress }}%</template>
+            <template v-if="t.repeat && t.repeat !== 'none'"> · {{ repeatLabel(t.repeat) }}</template>
+            <template v-if="blockDone(t)"> · ✓ 已完成</template>
+            <template v-else-if="occProgressOf(t) != null"> · {{ occProgressOf(t) }}%</template>
             <template v-else-if="isPending(t)"> · ⏰ 待反馈</template>
           </span>
           <div
@@ -692,7 +766,10 @@ function blockRect(t: Task): { top: string; height: string; hidden: boolean } {
         </div>
 
         <div class="plan-field">
-          <label class="plan-label">完成百分比：{{ editProgress }}%</label>
+          <label class="plan-label">
+            完成百分比：{{ editProgress }}%
+            <template v-if="editing.repeat && editing.repeat !== 'none'">（本次 {{ dateStr }}）</template>
+          </label>
           <input
             v-model.number="editProgress"
             class="plan-slider"
@@ -714,11 +791,46 @@ function blockRect(t: Task): { top: string; height: string; hidden: boolean } {
           </div>
         </div>
 
+        <div class="plan-field">
+          <label class="plan-label">循环</label>
+          <div class="plan-range">
+            <select v-model="editRepeat">
+              <option v-for="o in REPEAT_OPTIONS" :key="o.value" :value="o.value">
+                {{ o.label }}
+              </option>
+            </select>
+            <button class="plan-mini-btn" @click="saveRepeat">应用循环设置</button>
+          </div>
+          <span class="plan-field-tip">
+            循环任务按规则在对应日期的时间段重复出现，每天的完成/反馈互不影响
+          </span>
+        </div>
+
         <div class="plan-actions">
           <button class="plan-btn primary" @click="saveProgress">保存进度</button>
-          <button class="plan-btn success" @click="doComplete">✓ 直接完结</button>
+          <template v-if="editing.repeat && editing.repeat !== 'none'">
+            <button
+              v-if="!blockDone(editing)"
+              class="plan-btn success"
+              @click="doComplete"
+            >
+              ✓ 完结（本次）
+            </button>
+            <button v-else class="plan-btn success" @click="doUndoComplete">
+              ↩ 撤销本日完成
+            </button>
+          </template>
+          <button
+            v-else
+            class="plan-btn success"
+            @click="doComplete"
+          >
+            ✓ 直接完结
+          </button>
           <button class="plan-btn ghost" @click="doEditTask">编辑任务</button>
-          <button class="plan-btn danger" @click="doRemovePlan">移出计划</button>
+          <button class="plan-btn danger" @click="doRemovePlan">
+            {{ editing.repeat && editing.repeat !== 'none' ? '停止循环并移出' : '移出计划' }}
+          </button>
         </div>
       </div>
     </div>

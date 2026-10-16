@@ -110,6 +110,11 @@ export interface TaskPatch {
   planStart?: number | null;
   planEnd?: number | null;
   planProgress?: number | null;
+  repeat?: string;
+  occurrenceDate?: string;
+  occurrenceCompleted?: boolean;
+  occurrenceProgress?: number | null;
+  occurrenceNotified?: boolean;
 }
 
 export function getTasks(): Promise<TaskListResponse> {

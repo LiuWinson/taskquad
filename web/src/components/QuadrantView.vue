@@ -195,8 +195,8 @@ function rowIndicator(q: QuadrantKey, t: Task): 'before' | 'after' | null {
             <span
               v-if="t.planDate"
               class="plan-chip"
-              :title="`已安排计划：${t.planDate}`"
-              >📅</span
+              :title="`已安排计划：${t.planDate}${t.repeat && t.repeat !== 'none' ? '（循环）' : ''}`"
+              >{{ t.repeat && t.repeat !== 'none' ? '🔁' : '📅' }}</span
             >
             <span
               v-if="t.dueAt"

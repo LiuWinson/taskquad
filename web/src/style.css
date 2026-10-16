@@ -1332,6 +1332,27 @@ ul {
   border-radius: 2px;
 }
 
+.plan-block.plan-done {
+  opacity: 0.62;
+}
+
+.plan-block.plan-done .plan-block-title {
+  text-decoration: line-through;
+  color: #777;
+}
+
+.plan-block.plan-done .plan-block-meta {
+  color: #18794e;
+  font-weight: 600;
+}
+
+.plan-field-tip {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
 @keyframes plan-pulse {
   0%,
   100% {

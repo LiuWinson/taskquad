@@ -5,7 +5,7 @@ const path = require('path');
 const os = require('os');
 const { QUADRANTS } = require('./store');
 
-const VERSION = '1.2.8';
+const VERSION = '1.3.0';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
