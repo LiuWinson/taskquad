@@ -22,3 +22,8 @@ harmonyos/entry/build/
 harmonyos/entry/oh_modules/
 harmonyos/entry/.preview/
 harmonyos/entry/src/ohosTest/
+
+# 测试临时数据目录
+tools/.move-test/
+tools/.plan-test-data/
+tools/.migrate-data/

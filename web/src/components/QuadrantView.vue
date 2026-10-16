@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import { QUADRANTS, type QuadrantKey, type Task } from '../types';
 import { formatDisplayTime, isOverdue } from '../time';
+import { setDrag, getDrag, clearDrag as clearBus } from '../dragBus';
 
 const props = defineProps<{
   tasks: Task[];
@@ -15,8 +16,6 @@ const emit = defineEmits<{
   move: [taskId: string, targetQuadrant: QuadrantKey, order: number, clearPlan: boolean];
 }>();
 
-const DRAG_TYPE = 'application/x-taskquad';
-
 /** 按服务端 order 排序（旧数据已由服务端归一化补齐） */
 function tasksOf(key: QuadrantKey): Task[] {
   return props.tasks
@@ -28,16 +27,16 @@ function tasksOf(key: QuadrantKey): Task[] {
     );
 }
 
-// ---------- 拖拽状态 ----------
+// ---------- 拖拽状态（来源：本组件 dragstart 或拖拽总线中的计划块） ----------
 const dragId = ref<string | null>(null);
 const dragOverQuadrant = ref<QuadrantKey | null>(null);
 const dropIndex = ref<{ quadrant: QuadrantKey; index: number } | null>(null);
 
 function onDragStart(e: DragEvent, t: Task) {
   dragId.value = t.id;
+  setDrag({ kind: 'quadrant', id: t.id, duration: 30 });
   if (e.dataTransfer) {
     e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData(DRAG_TYPE, 'quadrant');
     e.dataTransfer.setData('text/plain', t.id);
   }
 }
@@ -48,21 +47,24 @@ function clearDrag() {
   dropIndex.value = null;
 }
 
+onMounted(() => {
+  window.addEventListener('dragend', clearDrag);
+});
+onUnmounted(() => {
+  window.removeEventListener('dragend', clearDrag);
+});
+
 /** 接受四象限任务或计划块的拖入（计划块拖回四象限 = 移出计划） */
-function adoptForeignDrag(e: DragEvent): boolean {
+function adoptForeignDrag(): boolean {
   if (dragId.value) return true;
-  const dt = e.dataTransfer;
-  if (!dt || !dt.types.includes(DRAG_TYPE)) return false;
-  const kind = dt.getData(DRAG_TYPE);
-  if (kind !== 'quadrant' && kind !== 'plan') return false;
-  const id = dt.getData('text/plain');
-  if (!id) return false;
-  dragId.value = id;
+  const d = getDrag();
+  if (!d) return false;
+  dragId.value = d.id;
   return true;
 }
 
 function onCardDragOver(e: DragEvent, q: QuadrantKey) {
-  if (!adoptForeignDrag(e)) return;
+  if (!adoptForeignDrag()) return;
   e.preventDefault();
   dragOverQuadrant.value = q;
   dropIndex.value = null; // 悬停在卡片空白区 → 追加到末尾
@@ -75,7 +77,7 @@ function onCardDrop(e: DragEvent, q: QuadrantKey) {
 }
 
 function onRowDragOver(e: DragEvent, q: QuadrantKey, t: Task) {
-  if (!adoptForeignDrag(e) || dragId.value === t.id) return;
+  if (!adoptForeignDrag() || dragId.value === t.id) return;
   e.preventDefault();
   e.stopPropagation();
   const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -120,6 +122,7 @@ function commitMove(target: QuadrantKey, rawIndex: number) {
   const clearPlan = !!(src && src.planDate);
   emit('move', id, target, order, clearPlan);
   clearDrag();
+  clearBus();
 }
 
 /** 行插入指示线位置：before → 顶部线；after → 底部线 */

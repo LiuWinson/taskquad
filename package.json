@@ -1,6 +1,6 @@
 {
   "name": "taskquad",
-  "version": "1.2.0",
+  "version": "1.2.7",
   "description": "任务四象限 - Windows 桌面 + 鸿蒙手机双端任务管理",
   "private": true,
   "scripts": {

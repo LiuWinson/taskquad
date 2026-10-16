@@ -62,10 +62,10 @@ async function checkHealth() {
   }
 }
 
-// ---------- 响应式布局：≥1100px 显示右侧每日计划栏，窄屏用「计划」标签页 ----------
+// ---------- 响应式布局：≥900px 显示右侧每日计划栏，窄屏用「计划」标签页 ----------
 const wide = ref(false);
 function updateWide() {
-  wide.value = window.innerWidth >= 1100;
+  wide.value = window.innerWidth >= 900;
 }
 
 onMounted(() => {
@@ -168,6 +168,18 @@ async function planMoveBlock(taskId: string, planDate: string, start: number, en
     await reload();
   } catch (e) {
     notify(e instanceof Error ? e.message : '调整时间段失败');
+  }
+}
+
+async function planMoveBlocks(moves: { id: string; start: number; end: number }[]) {
+  try {
+    for (const mv of moves) {
+      await updateTask(mv.id, { planStart: mv.start, planEnd: mv.end });
+    }
+    notify(`已整体调整 ${moves.length} 个任务`);
+    await reload();
+  } catch (e) {
+    notify(e instanceof Error ? e.message : '批量调整失败');
   }
 }
 
@@ -276,6 +288,7 @@ const settingsOpen = ref(false);
           :tasks="tasks"
           @schedule="planSchedule"
           @move-block="planMoveBlock"
+          @move-blocks="planMoveBlocks"
           @set-progress="planSetProgress"
           @complete="planComplete"
           @remove-plan="planRemove"
@@ -288,6 +301,7 @@ const settingsOpen = ref(false);
           :tasks="tasks"
           @schedule="planSchedule"
           @move-block="planMoveBlock"
+          @move-blocks="planMoveBlocks"
           @set-progress="planSetProgress"
           @complete="planComplete"
           @remove-plan="planRemove"

@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import type { Task } from '../types';
 import { quadrantOf } from '../types';
+import { setDrag, getDrag, clearDrag as clearBus } from '../dragBus';
 
 const props = defineProps<{
   tasks: Task[];
@@ -10,6 +11,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   schedule: [taskId: string, planDate: string, start: number, end: number];
   moveBlock: [taskId: string, planDate: string, start: number, end: number];
+  moveBlocks: [moves: { id: string; start: number; end: number }[]];
   setProgress: [taskId: string, progress: number | null];
   complete: [taskId: string];
   removePlan: [taskId: string];
@@ -17,7 +19,8 @@ const emit = defineEmits<{
 }>();
 
 const SLOT_H = 28; // 每个半小时槽位像素高度
-const DRAG_TYPE = 'application/x-taskquad';
+const DAY_START = 420; // 工作时间轴起点 07:00（分钟）
+const DAY_END = 1380; // 工作时间轴终点 23:00（分钟）
 
 // ---------- 日期 ----------
 function fmtDate(d: Date): string {
@@ -84,81 +87,283 @@ function isPending(t: Task): boolean {
   );
 }
 
-// ---------- 拖拽：四象限任务 → 计划槽位；计划块 → 其他槽位/四象限 ----------
-const dragKind = ref<'quadrant' | 'plan' | null>(null);
-const dragTaskId = ref<string | null>(null);
-const dragDuration = ref<number>(30);
+// ---------- Ctrl 多选 ----------
+const selectedIds = ref<string[]>([]);
+
+function isSelected(id: string): boolean {
+  return selectedIds.value.includes(id);
+}
+
+function toggleSelect(id: string) {
+  if (selectedIds.value.includes(id)) {
+    selectedIds.value = selectedIds.value.filter((x) => x !== id);
+  } else {
+    selectedIds.value = [...selectedIds.value, id];
+  }
+}
+
+function clearSelection() {
+  selectedIds.value = [];
+}
+
+function onBlockClick(e: MouseEvent, t: Task) {
+  if (e.ctrlKey || e.metaKey) {
+    e.stopPropagation();
+    toggleSelect(t.id);
+  } else {
+    if (!isSelected(t.id)) clearSelection();
+    openEditor(t);
+  }
+}
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') clearSelection();
+}
+
+onMounted(() => {
+  window.addEventListener('dragend', clearLocalDrag);
+  window.addEventListener('keydown', onKeydown);
+});
+onUnmounted(() => {
+  window.removeEventListener('dragend', clearLocalDrag);
+  window.removeEventListener('keydown', onKeydown);
+});
+
+// ---------- 拖拽（拖拽总线）：四象限任务 → 槽位；计划块 → 其他槽位/四象限 ----------
 const hoverSlot = ref<number | null>(null);
 
-function readDrag(e: DragEvent) {
-  const dt = e.dataTransfer;
-  if (!dt) return null;
-  if (!dt.types.includes(DRAG_TYPE)) return null;
-  const kind = dt.getData(DRAG_TYPE) as 'quadrant' | 'plan';
-  if (kind !== 'quadrant' && kind !== 'plan') return null;
-  const id = dt.getData('text/plain');
-  if (!id) return null;
-  return { kind, id };
+/** 指针所在位置对应的槽位起始分钟（按时间轴像素位置换算） */
+function pointerSlotMin(e: MouseEvent | DragEvent): number {
+  const el = e.currentTarget as HTMLElement;
+  const grid = el.closest('.plan-grid') as HTMLElement | null;
+  if (!grid) return DAY_START;
+  const rect = grid.getBoundingClientRect();
+  const idx = Math.floor((e.clientY - rect.top) / SLOT_H);
+  return DAY_START + Math.max(0, Math.min(31, idx)) * 30;
 }
 
 function onBlockDragStart(e: DragEvent, t: Task) {
-  const dt = e.dataTransfer;
-  if (!dt) return;
-  dragKind.value = 'plan';
-  dragTaskId.value = t.id;
-  dragDuration.value = (t.planEnd! - t.planStart!) || 30;
-  dt.effectAllowed = 'move';
-  dt.setData(DRAG_TYPE, 'plan');
-  dt.setData('text/plain', t.id);
+  const dur = t.planEnd! - t.planStart! || 30;
+  // 抓取点偏移：指针落在块内哪个半小时格，拖动时保持该相对位置
+  const raw = pointerSlotMin(e) - (t.planStart ?? DAY_START);
+  const grabOffset = Math.min(dur - 30, Math.max(0, Math.round(raw / 30) * 30));
+  if (isSelected(t.id) && selectedIds.value.length > 1) {
+    // 多选整体拖动：记录全量选中集合
+    setDrag({ kind: 'planBatch', id: t.id, duration: dur, ids: [...selectedIds.value], grabOffset });
+  } else {
+    if (!isSelected(t.id)) clearSelection();
+    setDrag({ kind: 'plan', id: t.id, duration: dur, grabOffset });
+  }
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', t.id);
+  }
 }
 
-function onSlotDragOver(e: DragEvent, startMin: number) {
-  const drag = readDrag(e);
+// ---------- 批量拖拽投影预览（幽灵块） ----------
+const batchPreview = ref<{ delta: number; ids: string[] } | null>(null);
+
+interface Ghost {
+  id: string;
+  title: string;
+  color: string;
+  start: number;
+  end: number;
+  invalid: boolean;
+  top: string;
+  height: string;
+}
+
+const batchGhosts = computed<Ghost[]>(() => {
+  const p = batchPreview.value;
+  if (!p) return [];
+  const out: Ghost[] = [];
+  for (const id of p.ids) {
+    const b = dayBlocks.value.find((x) => x.id === id);
+    if (!b) continue;
+    const start = (b.planStart ?? DAY_START) + p.delta;
+    const end = (b.planEnd ?? start + 30) + p.delta;
+    const invalid = start < DAY_START || end > DAY_END;
+    const cs = Math.max(start, DAY_START);
+    const ce = Math.min(end, DAY_END);
+    const dur = Math.max(30, ce - cs);
+    out.push({
+      id,
+      title: b.title,
+      color: quadrantOf(b.quadrant).color,
+      start,
+      end,
+      invalid,
+      top: `${((cs - DAY_START) / 30) * SLOT_H + 1}px`,
+      height: `${(dur / 30) * SLOT_H - 2}px`,
+    });
+  }
+  return out;
+});
+
+/** 时间轴容器级 dragover：直接按鼠标坐标换算槽位，
+ *  不受指针下方元素（计划块等）影响，投影严格按半小时格平滑移动 */
+function onGridDragOver(e: DragEvent) {
+  const drag = getDrag();
   if (!drag) return;
   e.preventDefault();
   if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
-  hoverSlot.value = startMin;
+  const min = pointerSlotMin(e);
+  hoverSlot.value = min;
+  if (drag.kind === 'planBatch') {
+    const dragged = dayBlocks.value.find((b) => b.id === drag.id);
+    if (!dragged) {
+      batchPreview.value = null;
+    } else {
+      const delta = min - (drag.grabOffset ?? 0) - (dragged.planStart ?? DAY_START);
+      // 位移为 0（投影与原位置重合）时不显示投影，避免干扰判断
+      batchPreview.value = delta === 0 ? null : { delta, ids: drag.ids ?? [drag.id] };
+    }
+  } else {
+    batchPreview.value = null;
+  }
 }
 
-function onSlotDrop(e: DragEvent, startMin: number) {
-  const drag = readDrag(e);
+/** 批量整体移动/平移：对选中集合做边界与冲突校验，全部通过才提交 */
+function applyBatchShift(ids: string[], deltaMin: number): boolean {
+  if (deltaMin === 0 || ids.length === 0) return false;
+  const blocks = dayBlocks.value.filter((b) => ids.includes(b.id));
+  if (blocks.length === 0) return false;
+  const moves = blocks.map((b) => ({
+    id: b.id,
+    start: (b.planStart ?? DAY_START) + deltaMin,
+    end: (b.planEnd ?? DAY_START + 30) + deltaMin,
+  }));
+  // 工作时间轴边界
+  for (const mv of moves) {
+    if (mv.start < DAY_START || mv.end > DAY_END) {
+      window.alert('整体移动后超出工作时间轴（07:00-23:00），已取消');
+      return false;
+    }
+  }
+  // 冲突检测（排除所有选中块）
+  for (const mv of moves) {
+    for (let m = mv.start; m < mv.end; m += 30) {
+      const hit = blockCovering(m, null);
+      if (hit && !ids.includes(hit.id)) {
+        window.alert(`移动后与「${hit.title}」冲突，已取消`);
+        return false;
+      }
+    }
+  }
+  emit('moveBlocks', moves);
+  return true;
+}
+
+function onGridDrop(e: DragEvent) {
+  const drag = getDrag();
   if (!drag) return;
   e.preventDefault();
-  const endMin = drag.kind === 'plan' ? startMin + dragDuration.value : startMin + 30;
+  const startMin = pointerSlotMin(e);
+  if (drag.kind === 'planBatch') {
+    const dragged = dayBlocks.value.find((b) => b.id === drag.id);
+    if (dragged) {
+      applyBatchShift(drag.ids ?? [drag.id], startMin - (drag.grabOffset ?? 0) - (dragged.planStart ?? DAY_START));
+    }
+    clearLocalDrag();
+    return;
+  }
+  // 单块移动/排期：按抓取点对齐（保持抓取手感）
+  const grab = drag.kind === 'plan' ? (drag.grabOffset ?? 0) : 0;
+  const newStart = startMin - grab;
+  const endMin = drag.kind === 'plan' ? newStart + drag.duration : startMin + 30;
   if (drag.kind === 'plan') {
+    // 工作时间轴边界
+    if (newStart < DAY_START || endMin > DAY_END) {
+      window.alert('超出工作时间轴（07:00-23:00），已取消');
+      clearLocalDrag();
+      return;
+    }
     // 计划块移动：先冲突检测（排除自身）
-    for (let m = startMin; m < endMin; m += 30) {
+    for (let m = newStart; m < endMin; m += 30) {
       const hit = blockCovering(m, drag.id);
       if (hit && hit.id !== drag.id) {
         window.alert(`该时间段与「${hit.title}」冲突`);
-        clearDrag();
+        clearLocalDrag();
         return;
       }
     }
-    emit('moveBlock', drag.id, dateStr.value, startMin, endMin);
+    emit('moveBlock', drag.id, dateStr.value, newStart, endMin);
   } else {
     // 四象限任务 → 计划：冲突检测
     for (let m = startMin; m < endMin; m += 30) {
       const hit = blockCovering(m);
       if (hit) {
         window.alert(`该时间段与「${hit.title}」冲突`);
-        clearDrag();
+        clearLocalDrag();
         return;
       }
     }
     emit('schedule', drag.id, dateStr.value, startMin, endMin);
   }
-  clearDrag();
+  clearLocalDrag();
 }
 
-function clearDrag() {
-  dragKind.value = null;
-  dragTaskId.value = null;
+function clearLocalDrag() {
   hoverSlot.value = null;
+  batchPreview.value = null;
+  clearBus();
 }
 
-onMounted(() => window.addEventListener('dragend', clearDrag));
-onUnmounted(() => window.removeEventListener('dragend', clearDrag));
+// ---------- 鼠标拖拽计划块上下边缘，调整覆盖时间段（半小时步进，实时预览） ----------
+interface ResizeState {
+  id: string;
+  mode: 'top' | 'bottom';
+  baseStart: number;
+  baseEnd: number;
+  originY: number;
+  start: number;
+  end: number;
+}
+const resizing = ref<ResizeState | null>(null);
+
+function onHandleDown(e: PointerEvent, t: Task, mode: 'top' | 'bottom') {
+  e.preventDefault();
+  e.stopPropagation();
+  clearSelection();
+  const el = e.currentTarget as HTMLElement;
+  el.setPointerCapture(e.pointerId);
+  resizing.value = {
+    id: t.id,
+    mode,
+    baseStart: t.planStart!,
+    baseEnd: t.planEnd!,
+    originY: e.clientY,
+    start: t.planStart!,
+    end: t.planEnd!,
+  };
+}
+
+function onHandleMove(e: PointerEvent) {
+  const r = resizing.value;
+  if (!r) return;
+  const deltaMin = Math.round((e.clientY - r.originY) / (SLOT_H / 30) / 30) * 30;
+  if (r.mode === 'bottom') {
+    r.end = Math.min(DAY_END, Math.max(r.baseStart + 30, r.baseEnd + deltaMin));
+  } else {
+    r.start = Math.max(DAY_START, Math.min(r.baseEnd - 30, r.baseStart + deltaMin));
+  }
+}
+
+function onHandleUp() {
+  const r = resizing.value;
+  if (!r) return;
+  resizing.value = null;
+  if (r.end <= r.start) return;
+  for (let m = r.start; m < r.end; m += 30) {
+    const hit = blockCovering(m, r.id);
+    if (hit) {
+      window.alert(`该时间段与「${hit.title}」冲突`);
+      return;
+    }
+  }
+  emit('moveBlock', r.id, dateStr.value, r.start, r.end);
+}
 
 // ---------- 空槽位点按：从任务列表选择（触屏/无拖拽场景） ----------
 const pickSlot = ref<number | null>(null);
@@ -227,28 +432,64 @@ function doEditTask() {
   closeEditor();
 }
 
-// 时间选择项（半小时粒度）
-const startOptions = Array.from({ length: 48 }, (_, i) => i * 30);
-const endOptions = Array.from({ length: 48 }, (_, i) => (i + 1) * 30);
-const slotStarts = Array.from({ length: 48 }, (_, i) => i * 30);
-const quickPercents = [25, 50, 75, 100];
-
-function slotBlockStyle(t: Task) {
-  const start = t.planStart ?? 0;
-  const end = t.planEnd ?? start + 30;
-  const dur = Math.max(30, end - start);
-  return {
-    top: `${(start / 30) * SLOT_H + 1}px`,
-    height: `${(dur / 30) * SLOT_H - 2}px`,
-    '--plan-color': quadrantOf(t.quadrant).color,
-  };
+// 时间选择项（半小时粒度，仅工作时间轴 07:00-23:00）
+const startOptions: number[] = [];
+for (let m = DAY_START; m < DAY_END; m += 30) {
+  startOptions.push(m);
 }
+const endOptions: number[] = [];
+for (let m = DAY_START + 30; m <= DAY_END; m += 30) {
+  endOptions.push(m);
+}
+const slotStarts: number[] = [];
+for (let m = DAY_START; m < DAY_END; m += 30) {
+  slotStarts.push(m);
+}
+const quickPercents = [25, 50, 75, 100];
 
 function slotHovered(startMin: number): boolean {
   if (hoverSlot.value == null) return false;
-  const drag = { kind: dragKind.value };
-  const len = drag.kind === 'plan' ? dragDuration.value : 30;
-  return startMin >= hoverSlot.value && startMin < hoverSlot.value + len;
+  const drag = getDrag();
+  if (!drag) return false;
+  if (drag.kind === 'planBatch') {
+    // 批量拖拽：仅在有投影（位移非零）时高亮所有选中块的投影范围
+    if (!batchPreview.value) return false;
+    const delta = batchPreview.value.delta;
+    for (const id of batchPreview.value.ids) {
+      const b = dayBlocks.value.find((x) => x.id === id);
+      if (!b) continue;
+      const ps = (b.planStart ?? DAY_START) + delta;
+      const pe = (b.planEnd ?? ps + 30) + delta;
+      if (startMin >= ps && startMin < pe) return true;
+    }
+    return false;
+  }
+  // 单块：按抓取点对齐的高亮窗口
+  const grab = drag.kind === 'plan' ? (drag.grabOffset ?? 0) : 0;
+  const s = hoverSlot.value - grab;
+  const len = drag.duration;
+  return startMin >= s && startMin < s + len;
+}
+
+/** 计划块矩形（缩放中实时预览；超出工作时间轴的部分裁剪显示） */
+function blockRect(t: Task): { top: string; height: string; hidden: boolean } {
+  let start = t.planStart ?? DAY_START;
+  let end = t.planEnd ?? start + 30;
+  if (resizing.value && resizing.value.id === t.id) {
+    start = resizing.value.start;
+    end = resizing.value.end;
+  }
+  if (end <= DAY_START || start >= DAY_END) {
+    return { top: '0px', height: '0px', hidden: true };
+  }
+  const cs = Math.max(start, DAY_START);
+  const ce = Math.min(end, DAY_END);
+  const dur = Math.max(30, ce - cs);
+  return {
+    top: `${((cs - DAY_START) / 30) * SLOT_H + 1}px`,
+    height: `${(dur / 30) * SLOT_H - 2}px`,
+    hidden: false,
+  };
 }
 </script>
 
@@ -266,18 +507,45 @@ function slotHovered(startMin: number): boolean {
       <span class="plan-count">{{ dayBlocks.length }} 项</span>
     </div>
 
-    <div class="plan-hint">按住四象限里的任务拖到时间槽；点计划块可调整时间段与反馈进度</div>
+    <div class="plan-hint">
+      工作时间轴 07:00-23:00 · Ctrl+点击计划块可多选，拖动或平移批量调整 · 拖动上下边缘调时长
+    </div>
+
+    <!-- 多选工具条 -->
+    <div v-if="selectedIds.length > 0" class="plan-batch-bar">
+      <span class="plan-batch-count">已选 {{ selectedIds.length }} 项</span>
+      <button
+        class="plan-mini-btn"
+        title="整体前移 30 分钟"
+        @click="applyBatchShift(selectedIds, -30)"
+      >
+        ⏪ 前移30分
+      </button>
+      <button
+        class="plan-mini-btn"
+        title="整体后移 30 分钟"
+        @click="applyBatchShift(selectedIds, 30)"
+      >
+        后移30分 ⏩
+      </button>
+      <button class="plan-mini-btn danger-text" @click="clearSelection">取消选择</button>
+    </div>
 
     <div class="plan-scroll">
-      <div class="plan-grid" :style="{ height: 48 * SLOT_H + 'px' }">
-        <!-- 现在时间线 -->
+      <div
+        class="plan-grid"
+        :style="{ height: slotStarts.length * SLOT_H + 'px' }"
+        @dragover="onGridDragOver"
+        @drop="onGridDrop"
+      >
+        <!-- 现在时间线（工作时间轴内才显示） -->
         <div
-          v-if="isToday"
+          v-if="isToday && nowMin >= DAY_START && nowMin < DAY_END"
           class="plan-now"
-          :style="{ top: (nowMin / 30) * SLOT_H + 'px' }"
+          :style="{ top: ((nowMin - DAY_START) / 30) * SLOT_H + 'px' }"
         ></div>
 
-        <!-- 48 个半小时槽位 -->
+        <!-- 32 个半小时槽位（07:00-23:00） -->
         <div
           v-for="(m, i) in slotStarts"
           :key="m"
@@ -287,31 +555,64 @@ function slotHovered(startMin: number): boolean {
             'slot-hour': m % 60 === 0,
           }"
           :style="{ top: i * SLOT_H + 'px' }"
-          @dragover="onSlotDragOver($event, m)"
-          @drop="onSlotDrop($event, m)"
-          @click="pickSlot = m"
+          @click="clearSelection(); pickSlot = m"
         >
           <span v-if="m % 60 === 0" class="slot-label">{{ fmtMin(m) }}</span>
         </div>
 
-        <!-- 计划块 -->
+        <!-- 计划块（带上下边缘缩放把手） -->
         <div
           v-for="t in dayBlocks"
+          v-show="!blockRect(t).hidden"
           :key="t.id"
           class="plan-block"
-          :class="{ 'plan-pending': isPending(t) }"
-          :style="slotBlockStyle(t)"
+          :class="{
+            'plan-pending': isPending(t),
+            'plan-resizing': resizing && resizing.id === t.id,
+            'plan-selected': isSelected(t.id),
+            'batch-source': batchPreview && batchPreview.ids.includes(t.id),
+          }"
+          :style="{ ...blockRect(t), '--plan-color': quadrantOf(t.quadrant).color }"
           draggable="true"
           @dragstart="onBlockDragStart($event, t)"
-          @click.stop="openEditor(t)"
+          @click.stop="onBlockClick($event, t)"
         >
+          <div
+            class="plan-resize top"
+            title="拖动调整开始时间"
+            @dragstart.prevent.stop
+            @pointerdown="onHandleDown($event, t, 'top')"
+            @pointermove="onHandleMove"
+            @pointerup="onHandleUp"
+          ></div>
           <span class="plan-block-title">{{ t.title }}</span>
           <span class="plan-block-meta">
             {{ fmtMin(t.planStart!) }}-{{ fmtMin(t.planEnd!) }}
-            <template v-if="t.planProgress != null">
-              · {{ t.planProgress }}%
-            </template>
+            <template v-if="t.planProgress != null"> · {{ t.planProgress }}%</template>
             <template v-else-if="isPending(t)"> · ⏰ 待反馈</template>
+          </span>
+          <div
+            class="plan-resize bottom"
+            title="拖动调整结束时间"
+            @dragstart.prevent.stop
+            @pointerdown="onHandleDown($event, t, 'bottom')"
+            @pointermove="onHandleMove"
+            @pointerup="onHandleUp"
+          ></div>
+        </div>
+
+        <!-- 批量拖拽投影（幽灵块）：显示所有选中块的目标位置 -->
+        <div
+          v-for="g in batchGhosts"
+          :key="'g' + g.id"
+          class="plan-ghost"
+          :class="{ 'ghost-invalid': g.invalid }"
+          :style="{ top: g.top, height: g.height, '--plan-color': g.color }"
+        >
+          <span class="plan-block-title">{{ g.title }}</span>
+          <span class="plan-block-meta">
+            {{ fmtMin(g.start) }}-{{ fmtMin(g.end) }}
+            <template v-if="g.invalid"> · 超出工作时间轴</template>
           </span>
         </div>
       </div>
@@ -352,7 +653,7 @@ function slotHovered(startMin: number): boolean {
         </div>
 
         <div class="plan-field">
-          <label class="plan-label">时间段</label>
+          <label class="plan-label">时间段（也可直接拖动计划块上下边缘）</label>
           <div class="plan-range">
             <select v-model.number="editStart">
               <option v-for="m in startOptions" :key="'s' + m" :value="m">

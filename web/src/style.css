@@ -83,7 +83,7 @@ ul {
 
 /* 右侧每日计划栏 */
 .plan-side {
-  width: 320px;
+  width: 300px;
   flex-shrink: 0;
   position: sticky;
   top: 64px;
@@ -1232,6 +1232,104 @@ ul {
 .plan-block.plan-pending .plan-block-meta {
   color: #c63a40;
   font-weight: 600;
+}
+
+/* Ctrl 多选状态 */
+.plan-block.plan-selected {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+  box-shadow: 0 0 0 3px rgba(47, 107, 255, 0.18);
+  z-index: 5;
+}
+
+/* 批量拖拽中：原块半透明、目标位置显示幽灵投影 */
+.plan-block.batch-source {
+  opacity: 0.45;
+}
+
+.plan-ghost {
+  position: absolute;
+  left: 44px;
+  right: 6px;
+  z-index: 6;
+  border: 2px dashed var(--plan-color);
+  border-left: 4px solid var(--plan-color);
+  background: color-mix(in srgb, var(--plan-color) 10%, #ffffff);
+  border-radius: 6px;
+  padding: 3px 6px;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.plan-ghost .plan-block-meta {
+  font-weight: 600;
+}
+
+.plan-ghost.ghost-invalid {
+  border-color: var(--danger);
+  border-left-color: var(--danger);
+  background: rgba(229, 72, 77, 0.1);
+}
+
+.plan-ghost.ghost-invalid .plan-block-meta {
+  color: var(--danger);
+}
+
+/* 多选批量工具条 */
+.plan-batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid #c9dcfd;
+  background: #eaf2ff;
+  flex-wrap: wrap;
+}
+
+.plan-batch-count {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary);
+  margin-right: 2px;
+}
+
+.plan-mini-btn.danger-text {
+  color: var(--danger);
+  border-color: #f3c1c3;
+  background: #fdecec;
+  margin-left: auto;
+}
+
+.plan-block.plan-resizing {
+  border-style: dashed;
+  border-color: var(--primary);
+  box-shadow: 0 2px 10px rgba(47, 107, 255, 0.25);
+  z-index: 6;
+}
+
+.plan-resize {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 6px;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.plan-resize.top {
+  top: 0;
+}
+
+.plan-resize.bottom {
+  bottom: 0;
+}
+
+.plan-resize:hover {
+  background: color-mix(in srgb, var(--primary) 25%, transparent);
+  border-radius: 2px;
 }
 
 @keyframes plan-pulse {

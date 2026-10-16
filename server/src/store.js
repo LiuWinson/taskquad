@@ -202,6 +202,33 @@ class TaskStore {
     const oldDate = task.planDate;
     const oldStart = task.planStart;
     const oldEnd = task.planEnd;
+
+    // 计划字段整体预校验（开始/结束同时提交时按新值成对校验，避免"拖动整体调整"被旧值误判）
+    const clearPlan = 'planDate' in patch && patch.planDate == null;
+    const propDate = clearPlan ? null : ('planDate' in patch ? String(patch.planDate) : task.planDate);
+    if (propDate != null && !/^\d{4}-\d{2}-\d{2}$/.test(propDate)) throw new Error('无效的计划日期');
+    let propStart = clearPlan ? null : ('planStart' in patch ? patch.planStart : task.planStart);
+    let propEnd = clearPlan ? null : ('planEnd' in patch ? patch.planEnd : task.planEnd);
+    if (propStart != null) {
+      propStart = Number(propStart);
+      if (!validSlotMinutes(propStart)) throw new Error('计划开始时间必须是 30 分钟的整数倍');
+    }
+    if (propEnd != null) {
+      propEnd = Number(propEnd);
+      if (!validSlotMinutes(propEnd)) throw new Error('计划结束时间必须是 30 分钟的整数倍');
+    }
+    if (propStart != null && propEnd != null && propStart >= propEnd) {
+      throw new Error('开始时间必须早于结束时间');
+    }
+    let propProgress = 'planProgress' in patch ? patch.planProgress : task.planProgress;
+    if (propProgress != null) {
+      propProgress = Number(propProgress);
+      if (!Number.isFinite(propProgress) || propProgress < 0 || propProgress > 100) {
+        throw new Error('完成百分比必须在 0-100 之间');
+      }
+      propProgress = Math.round(propProgress);
+    }
+
     for (const key of allowed) {
       if (!(key in patch)) continue;
       const value = patch[key];
@@ -227,46 +254,23 @@ class TaskStore {
         if (!Number.isFinite(n)) throw new Error('无效的排序值');
         task.order = n;
       } else if (key === 'planDate') {
-        if (value == null) {
-          // 移出计划：清空全部计划字段
-          task.planDate = null;
-          task.planStart = null;
-          task.planEnd = null;
-          task.planProgress = null;
-          task.planEndNotified = false;
-        } else {
-          if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value))) throw new Error('无效的计划日期');
-          task.planDate = String(value);
-        }
+        task.planDate = propDate;
       } else if (key === 'planStart') {
-        if (value == null) {
-          task.planStart = null;
-        } else {
-          const n = Number(value);
-          if (!validSlotMinutes(n)) throw new Error('计划开始时间必须是 30 分钟的整数倍');
-          if (typeof task.planEnd === 'number' && n >= task.planEnd) throw new Error('开始时间必须早于结束时间');
-          task.planStart = n;
-          if (!task.planDate) task.planDate = todayLocalDate();
-        }
+        task.planStart = propStart;
+        if (task.planStart != null && !task.planDate) task.planDate = todayLocalDate();
       } else if (key === 'planEnd') {
-        if (value == null) {
-          task.planEnd = null;
-        } else {
-          const n = Number(value);
-          if (!validSlotMinutes(n)) throw new Error('计划结束时间必须是 30 分钟的整数倍');
-          if (typeof task.planStart === 'number' && n <= task.planStart) throw new Error('结束时间必须晚于开始时间');
-          task.planEnd = n;
-          if (!task.planDate) task.planDate = todayLocalDate();
-        }
+        task.planEnd = propEnd;
+        if (task.planEnd != null && !task.planDate) task.planDate = todayLocalDate();
       } else if (key === 'planProgress') {
-        if (value == null) {
-          task.planProgress = null;
-        } else {
-          const n = Number(value);
-          if (!Number.isFinite(n) || n < 0 || n > 100) throw new Error('完成百分比必须在 0-100 之间');
-          task.planProgress = Math.round(n);
-        }
+        task.planProgress = propProgress;
       }
+    }
+    if (clearPlan) {
+      task.planDate = null;
+      task.planStart = null;
+      task.planEnd = null;
+      task.planProgress = null;
+      task.planEndNotified = false;
     }
     this._planChanged(task, oldDate, oldStart, oldEnd);
     task.updatedAt = new Date().toISOString();
