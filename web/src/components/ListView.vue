@@ -2,7 +2,7 @@
 import { computed } from 'vue';
 import type { Task } from '../types';
 import { quadrantOf } from '../types';
-import { formatDisplayTime, isOverdue, isToday } from '../time';
+import { formatDisplayTime, formatPlanRange, isOverdue, isToday } from '../time';
 
 const props = defineProps<{
   tasks: Task[];
@@ -89,6 +89,12 @@ const isEmpty = computed(() => groups.value.every((g) => g.items.length === 0));
               >
                 {{ quadrantOf(t.quadrant).label }}
               </span>
+              <span
+                v-if="t.planDate"
+                class="plan-chip"
+                :title="`已安排计划：${formatPlanRange(t)}`"
+                >📅 {{ formatPlanRange(t) }}</span
+              >
               <span
                 v-if="t.dueAt"
                 class="due-badge"

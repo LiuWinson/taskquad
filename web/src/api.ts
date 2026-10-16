@@ -106,6 +106,10 @@ export interface TaskPatch {
   remindAt?: string | null;
   completed?: boolean;
   order?: number;
+  planDate?: string | null;
+  planStart?: number | null;
+  planEnd?: number | null;
+  planProgress?: number | null;
 }
 
 export function getTasks(): Promise<TaskListResponse> {

@@ -16,6 +16,16 @@ export interface Task {
   remindedAt: string | null;
   /** 象限内排序值（服务端维护，浮点；拖拽时取相邻值中点） */
   order: number;
+  /** 每日计划：日期 YYYY-MM-DD（本地） */
+  planDate: string | null;
+  /** 计划开始时间（当天分钟数，30 的倍数） */
+  planStart: number | null;
+  /** 计划结束时间（当天分钟数，30 的倍数，> planStart） */
+  planEnd: number | null;
+  /** 计划完成百分比反馈 0-100；null = 未反馈 */
+  planProgress: number | null;
+  /** 计划结束待反馈通知是否已发 */
+  planEndNotified: boolean;
 }
 
 export interface Quadrant {

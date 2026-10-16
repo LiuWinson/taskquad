@@ -64,10 +64,32 @@ ul {
 
 /* ---------- 应用布局 ---------- */
 .app {
-  max-width: 1080px;
+  max-width: 1400px;
   margin: 0 auto;
   padding: 0 16px 48px;
   padding-top: calc(env(safe-area-inset-top, 0px) + 12px);
+}
+
+.app-body {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.app-body .content {
+  flex: 1;
+  min-width: 0;
+}
+
+/* 右侧每日计划栏 */
+.plan-side {
+  width: 320px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 64px;
+  max-height: calc(100vh - 84px);
+  display: flex;
+  flex-direction: column;
 }
 
 /* ---------- 顶部导航 ---------- */
@@ -1020,4 +1042,394 @@ ul {
     width: 22px;
     height: 22px;
   }
+}
+
+/* ---------- 每日计划面板 ---------- */
+.plan-panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.plan-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.plan-nav {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.plan-nav-btn {
+  border: 1px solid var(--border);
+  background: #f7f8fa;
+  border-radius: 6px;
+  width: 26px;
+  height: 26px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.plan-nav-btn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.plan-date {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.plan-today-btn {
+  font-size: 11px;
+  color: var(--primary);
+  background: #eaf2ff;
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+
+.plan-count {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.plan-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: #fafbfc;
+}
+
+.plan-scroll {
+  overflow-y: auto;
+  flex: 1;
+  min-height: 200px;
+  max-height: 640px;
+}
+
+.plan-grid {
+  position: relative;
+  width: 100%;
+}
+
+.plan-slot {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 28px;
+  border-bottom: 1px solid #f0f1f3;
+  cursor: pointer;
+}
+
+.plan-slot.slot-hour {
+  border-bottom-color: #e2e4e8;
+}
+
+.plan-slot:hover {
+  background: #f5f7fa;
+}
+
+.plan-slot.slot-hover {
+  background: #e8f0fe;
+  outline: 1px solid var(--primary);
+  outline-offset: -1px;
+}
+
+.slot-label {
+  position: absolute;
+  left: 4px;
+  top: -6px;
+  font-size: 10px;
+  color: #b0b4bb;
+  background: var(--card);
+  padding: 0 2px;
+  pointer-events: none;
+}
+
+.plan-now {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #e5484d;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.plan-now::before {
+  content: '';
+  position: absolute;
+  left: -3px;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #e5484d;
+}
+
+.plan-block {
+  position: absolute;
+  left: 44px;
+  right: 6px;
+  z-index: 4;
+  background: color-mix(in srgb, var(--plan-color) 12%, #ffffff);
+  border: 1px solid color-mix(in srgb, var(--plan-color) 55%, #ffffff);
+  border-left: 4px solid var(--plan-color);
+  border-radius: 6px;
+  padding: 3px 6px;
+  overflow: hidden;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  transition: box-shadow 0.15s;
+}
+
+.plan-block:hover {
+  box-shadow: 0 2px 8px rgba(16, 24, 40, 0.14);
+}
+
+.plan-block-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.plan-block-meta {
+  font-size: 10px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.plan-block.plan-pending {
+  border-color: #e5484d;
+  border-left-color: #e5484d;
+  background: color-mix(in srgb, #e5484d 10%, #ffffff);
+  animation: plan-pulse 2s ease-in-out infinite;
+}
+
+.plan-block.plan-pending .plan-block-meta {
+  color: #c63a40;
+  font-weight: 600;
+}
+
+@keyframes plan-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(229, 72, 77, 0.35);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(229, 72, 77, 0);
+  }
+}
+
+/* 计划弹层 */
+.plan-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.plan-pop {
+  background: #fff;
+  border-radius: 12px;
+  width: min(420px, 100%);
+  padding: 14px 16px;
+  box-shadow: var(--shadow-lg);
+  max-height: 82vh;
+  overflow-y: auto;
+}
+
+.plan-pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.plan-pop-head strong {
+  font-size: 15px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 8px;
+}
+
+.plan-field {
+  margin-bottom: 12px;
+}
+
+.plan-label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.plan-range {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.plan-range select {
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  background: #fff;
+  color: var(--text);
+}
+
+.plan-slider {
+  width: 100%;
+  accent-color: var(--primary);
+}
+
+.plan-quick {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.plan-mini-btn {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #f7f8fa;
+  color: var(--text-secondary);
+}
+
+.plan-mini-btn.active {
+  border-color: var(--primary);
+  background: #eaf2ff;
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.plan-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.plan-btn {
+  flex: 1;
+  min-width: 90px;
+  font-size: 13px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #f7f8fa;
+  color: var(--text-secondary);
+}
+
+.plan-btn.primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+.plan-btn.success {
+  background: #e6f6ec;
+  border-color: #9ad8b2;
+  color: #18794e;
+}
+
+.plan-btn.danger {
+  background: #fdecec;
+  border-color: #f3c1c3;
+  color: var(--danger);
+}
+
+.plan-pick-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.plan-pick-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  text-align: left;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.plan-pick-item:hover {
+  background: #f3f4f6;
+}
+
+.plan-pick-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.plan-pick-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plan-pick-tag {
+  font-size: 11px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.plan-empty {
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: center;
+  padding: 20px 0;
+}
+
+/* 计划小徽标（象限卡片与列表中的 📅） */
+.plan-chip {
+  font-size: 11px;
+  color: #2f6bff;
+  background: #eaf2ff;
+  border: 1px solid #c9dcfd;
+  border-radius: 6px;
+  padding: 1px 6px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }

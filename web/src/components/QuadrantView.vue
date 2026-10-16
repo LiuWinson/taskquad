@@ -12,8 +12,10 @@ const emit = defineEmits<{
   toggle: [task: Task];
   edit: [task: Task];
   add: [quadrant: QuadrantKey];
-  move: [taskId: string, targetQuadrant: QuadrantKey, order: number];
+  move: [taskId: string, targetQuadrant: QuadrantKey, order: number, clearPlan: boolean];
 }>();
+
+const DRAG_TYPE = 'application/x-taskquad';
 
 /** 按服务端 order 排序（旧数据已由服务端归一化补齐） */
 function tasksOf(key: QuadrantKey): Task[] {
@@ -35,6 +37,7 @@ function onDragStart(e: DragEvent, t: Task) {
   dragId.value = t.id;
   if (e.dataTransfer) {
     e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData(DRAG_TYPE, 'quadrant');
     e.dataTransfer.setData('text/plain', t.id);
   }
 }
@@ -45,8 +48,21 @@ function clearDrag() {
   dropIndex.value = null;
 }
 
+/** 接受四象限任务或计划块的拖入（计划块拖回四象限 = 移出计划） */
+function adoptForeignDrag(e: DragEvent): boolean {
+  if (dragId.value) return true;
+  const dt = e.dataTransfer;
+  if (!dt || !dt.types.includes(DRAG_TYPE)) return false;
+  const kind = dt.getData(DRAG_TYPE);
+  if (kind !== 'quadrant' && kind !== 'plan') return false;
+  const id = dt.getData('text/plain');
+  if (!id) return false;
+  dragId.value = id;
+  return true;
+}
+
 function onCardDragOver(e: DragEvent, q: QuadrantKey) {
-  if (!dragId.value) return;
+  if (!adoptForeignDrag(e)) return;
   e.preventDefault();
   dragOverQuadrant.value = q;
   dropIndex.value = null; // 悬停在卡片空白区 → 追加到末尾
@@ -59,7 +75,7 @@ function onCardDrop(e: DragEvent, q: QuadrantKey) {
 }
 
 function onRowDragOver(e: DragEvent, q: QuadrantKey, t: Task) {
-  if (!dragId.value || dragId.value === t.id) return;
+  if (!adoptForeignDrag(e) || dragId.value === t.id) return;
   e.preventDefault();
   e.stopPropagation();
   const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -99,7 +115,10 @@ function commitMove(target: QuadrantKey, rawIndex: number) {
   } else {
     order = (list[index - 1].order + list[index].order) / 2;
   }
-  emit('move', id, target, order);
+  // 拖动的任务原本在每日计划中 → 移入象限时清除计划字段
+  const src = props.tasks.find((x) => x.id === id);
+  const clearPlan = !!(src && src.planDate);
+  emit('move', id, target, order, clearPlan);
   clearDrag();
 }
 
@@ -124,7 +143,7 @@ function rowIndicator(q: QuadrantKey, t: Task): 'before' | 'after' | null {
 
   <div v-else class="quadrant-view">
     <p class="drag-hint">
-      💡 按住任务拖动，可在同一象限内排序，也可拖到其他象限改变分类
+      💡 按住任务拖动：同一象限内排序、拖到其他象限改变分类、拖到右侧「每日计划」安排时间
     </p>
     <div class="quadrant-grid">
       <section
@@ -170,6 +189,12 @@ function rowIndicator(q: QuadrantKey, t: Task): 'before' | 'after' | null {
               <span class="checkbox-box"></span>
             </label>
             <span class="task-title" @click="emit('edit', t)">{{ t.title }}</span>
+            <span
+              v-if="t.planDate"
+              class="plan-chip"
+              :title="`已安排计划：${t.planDate}`"
+              >📅</span
+            >
             <span
               v-if="t.dueAt"
               class="due-badge"

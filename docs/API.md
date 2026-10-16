@@ -34,11 +34,21 @@
   "createdAt": "创建时间 ISO",
   "updatedAt": "最后更新时间 ISO",
   "remindedAt": "最近一次已触发提醒对应的 remindAt 值（内部字段，用于防重复提醒）",
-  "order": 1756000000000.5
+  "order": 1756000000000.5,
+  "planDate": "2026-10-16",
+  "planStart": 540,
+  "planEnd": 630,
+  "planProgress": 60,
+  "planEndNotified": false
 }
 ```
 
 - `order`：象限内排序值（number，允许浮点）。创建时取时间戳；客户端拖拽排序时取相邻两项的**中点**写入（如 `(前项.order + 后项.order) / 2`），首位置用 `前项.order - 1`、末位置用 `末项.order + 1`。服务端启动时对旧数据自动补齐（缺失时取 createdAt 时间戳），保证旧版本数据升级后可用。
+- **每日计划字段**（1.2.0 新增，旧数据自动补默认值）：
+  - `planDate`：计划日期 `YYYY-MM-DD`（本地时区），`null` = 未排入计划。
+  - `planStart` / `planEnd`：当天分钟数（0..1440），必须是 **30 的倍数**，且 `planEnd > planStart`。
+  - `planProgress`：完成百分比反馈 0..100（整数），`null` = 未反馈。任务可被排入计划多次，每次变更时间段后重置为 `null`。
+  - `planEndNotified`：计划结束“待反馈”通知是否已发（内部字段）。
 
 ## 3. 接口列表
 
@@ -84,7 +94,7 @@
 - 响应 `201`：`{ "task": Task }`
 
 ### 3.5 PATCH /api/tasks/:id
-局部更新。请求体为任意字段子集：`{ "title"?, "note"?, "quadrant"?, "dueAt"?, "remindAt"?, "completed"?, "order"? }`。
+局部更新。请求体为任意字段子集：`{ "title"?, "note"?, "quadrant"?, "dueAt"?, "remindAt"?, "completed"?, "order"?, "planDate"?, "planStart"?, "planEnd"?, "planProgress"? }`。
 
 规则：
 - 更新 `updatedAt`。
@@ -92,6 +102,11 @@
 - 当 `remindAt` 字段出现且与当前值不同 → 将 `remindedAt` 重置为 `null`（允许新时间再次提醒）。
 - `dueAt`/`remindAt` 允许为 `null`（清除）。
 - `order`：必须为有限数值（`Number.isFinite`），用于拖拽排序/跨象限移动；`quadrant` 与 `order` 可同时提交（拖拽到其他象限时一次完成）。
+- **计划字段**：
+  - `planDate`：`YYYY-MM-DD`；提交 `null` 表示**移出计划**（清空全部计划字段）。
+  - `planStart`/`planEnd`：`null` 清除；数值必须是 30 的倍数（0..1440），`planEnd > planStart`，否则 `400`。若提交时 `planDate` 为空则自动使用**当天**。
+  - `planDate`/`planStart`/`planEnd` 任一发生变化 → `planProgress` 重置为 `null`、`planEndNotified` 重置为 `false`（重新排期后需重新反馈）。
+  - `planProgress`：`null` 清除；数值需在 0..100（四舍五入取整），否则 `400`。
 - 不存在的 id 响应 `404 { "error": "任务不存在" }`。
 - 响应 `200`：`{ "task": Task }`
 
@@ -124,6 +139,7 @@
 - 服务端每 15 秒检查一次：`!completed && remindAt != null && remindAt <= now && remindedAt !== remindAt` 的任务。
 - 命中后：触发一次提醒回调（Electron 弹桌面通知），并把该任务的 `remindedAt` 置为 `remindAt`。
 - 重启服务后已提醒过的任务不会重复提醒（因为 `remindedAt === remindAt`）。
+- **每日计划结束待反馈**：任务 `planDate` 为今天且 `planEnd <= 当前分钟`、未完成、未反馈（`planProgress == null`）、未通知过 → 触发一次回调（`kind: 'planEnd'`，桌面端弹「时间段已结束，请反馈完成情况」），并置 `planEndNotified = true`。修改时间段后重置为 `false`，可再次提醒。
 - 鸿蒙端提醒由鸿蒙 App 本地调度（见 harmonyos 说明），服务端只负责桌面端。
 
 ## 5. 版本与兼容
@@ -135,5 +151,6 @@
 
 - 数据文件为 JSON：`{ "schemaVersion": 1, "tasks": [...] }`，存放在数据目录（开发模式 `server/data/tasks.json`；打包安装后 `%APPDATA%\taskquad-desktop\data\tasks.json`）。
 - **数据目录与安装目录分离**：安装包升级（覆盖安装）只替换程序文件，数据目录不受影响，升级不清数据；卸载程序也不会删除数据目录。
-- 服务启动时对旧格式数据做**归一化迁移**：缺失 `schemaVersion`（1.0 版）或缺失 `order` 等字段的记录会被自动补齐后按新格式保存，任务内容不丢失。
+- 服务启动时对旧格式数据做**归一化迁移**：缺失 `schemaVersion`（1.0 版）或缺失 `order`/计划字段等的记录会被自动补齐后按新格式保存，任务内容不丢失。
+- **启动自动备份**：每次启动时若数据文件与最近一次备份不同，先整体复制到 `data/backups/tasks.<时间戳>.json`（保留最近 30 份）。即使未来迁移出现意外，也可从备份完整恢复旧数据。
 - 未来 schema 变更时在 `_normalizeTasks` 中追加迁移逻辑，`schemaVersion` 递增。

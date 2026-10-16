@@ -90,6 +90,19 @@ export function isOverdue(dueAt: string | null): boolean {
   return isValid(d) && d.getTime() < Date.now();
 }
 
+/** 每日计划区间展示：M月d日 HH:mm-HH:mm */
+export function formatPlanRange(t: {
+  planDate: string | null;
+  planStart: number | null;
+  planEnd: number | null;
+}): string {
+  if (!t.planDate || typeof t.planStart !== 'number' || typeof t.planEnd !== 'number') {
+    return '';
+  }
+  const hm = (m: number) => `${pad2(Math.floor(m / 60))}:${pad2(m % 60)}`;
+  return `${Number(t.planDate.slice(5, 7))}月${Number(t.planDate.slice(8, 10))}日 ${hm(t.planStart)}-${hm(t.planEnd)}`;
+}
+
 /** 判断截止时间是否属于今天（非逾期，用于列表分组）。 */
 export function isToday(dueAt: string | null): boolean {
   if (!dueAt) return false;

@@ -6,12 +6,29 @@ const crypto = require('crypto');
 
 const QUADRANTS = ['IU', 'IN', 'NU', 'NN'];
 const SCHEMA_VERSION = 1;
+const MAX_BACKUPS = 30;
+
+/** 本地日期 YYYY-MM-DD */
+function todayLocalDate(d = new Date()) {
+  const p = (x) => String(x).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** 本地当天已过分钟数 0..1439 */
+function nowLocalMinutes(d = new Date()) {
+  return d.getHours() * 60 + d.getMinutes();
+}
+
+/** 计划时间必须是 0..1440 内 30 的倍数 */
+function validSlotMinutes(v) {
+  return Number.isInteger(v) && v >= 0 && v <= 1440 && v % 30 === 0;
+}
 
 /**
  * JSON 文件持久化存储。
  * 数据量级为个人任务清单，直接内存态 + 原子写盘即可。
  * 数据文件带 schemaVersion，升级版本时在 _load 中对旧数据做归一化迁移，
- * 旧版本数据永不丢失。
+ * 旧版本数据永不丢失；每次启动还会先自动备份原始数据文件到 data/backups/。
  */
 class TaskStore {
   constructor(dataDir) {
@@ -23,8 +40,41 @@ class TaskStore {
     this._load();
   }
 
+  _backupIfChanged() {
+    let raw = null;
+    try {
+      raw = fs.readFileSync(this.tasksFile, 'utf8');
+    } catch (_) {
+      return; // 首次运行：无文件可备份
+    }
+    const backupsDir = path.join(this.dataDir, 'backups');
+    fs.mkdirSync(backupsDir, { recursive: true });
+    // 与最近一次备份内容一致则跳过，避免每次重启都堆积
+    let newest = null;
+    try {
+      const list = fs.readdirSync(backupsDir).filter((f) => /^tasks\.\d{4}-\d{2}-\d{2}T.*\.json$/.test(f)).sort();
+      if (list.length) newest = list[list.length - 1];
+    } catch (_) {}
+    if (newest) {
+      try {
+        if (fs.readFileSync(path.join(backupsDir, newest), 'utf8') === raw) return;
+      } catch (_) {}
+    }
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    fs.writeFileSync(path.join(backupsDir, `tasks.${stamp}.json`), raw, 'utf8');
+    // 只保留最近 MAX_BACKUPS 份
+    try {
+      const list = fs.readdirSync(backupsDir).filter((f) => /^tasks\.\d{4}-\d{2}-\d{2}T.*\.json$/.test(f)).sort();
+      while (list.length > MAX_BACKUPS) {
+        const old = list.shift();
+        fs.unlinkSync(path.join(backupsDir, old));
+      }
+    } catch (_) {}
+  }
+
   _load() {
     fs.mkdirSync(this.dataDir, { recursive: true });
+    this._backupIfChanged();
     try {
       const parsed = JSON.parse(fs.readFileSync(this.tasksFile, 'utf8'));
       if (Array.isArray(parsed.tasks)) this.tasks = parsed.tasks;
@@ -50,6 +100,23 @@ class TaskStore {
       if (typeof t.note !== 'string') t.note = t.note == null ? '' : String(t.note);
       if (typeof t.remindedAt !== 'string') t.remindedAt = null;
       if (t.completed && !t.completedAt) t.completedAt = new Date().toISOString();
+      // 每日计划字段（1.2.0 新增）：旧数据补默认值
+      if (typeof t.planDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(t.planDate)) t.planDate = null;
+      if (!validSlotMinutes(t.planStart)) t.planStart = null;
+      if (!validSlotMinutes(t.planEnd)) t.planEnd = null;
+      if (typeof t.planStart === 'number' && typeof t.planEnd === 'number' && t.planStart >= t.planEnd) {
+        t.planStart = null;
+        t.planEnd = null;
+      }
+      if (t.planDate == null) {
+        t.planStart = null;
+        t.planEnd = null;
+        t.planProgress = null;
+        t.planEndNotified = false;
+      }
+      if (typeof t.planProgress !== 'number' || !Number.isFinite(t.planProgress)) t.planProgress = null;
+      else t.planProgress = Math.max(0, Math.min(100, Math.round(t.planProgress)));
+      if (typeof t.planEndNotified !== 'boolean') t.planEndNotified = false;
       if (!t.id || !t.title || !QUADRANTS.includes(t.quadrant)) {
         // 极端异常记录：补最小可用字段，不丢数据
         t.id = t.id || crypto.randomUUID();
@@ -108,16 +175,33 @@ class TaskStore {
       updatedAt: now,
       remindedAt: null,
       order: Date.now(),
+      planDate: null,
+      planStart: null,
+      planEnd: null,
+      planProgress: null,
+      planEndNotified: false,
     };
     this.tasks.push(task);
     this._save();
     return task;
   }
 
+  /** 计划字段变更时重置反馈与通知状态 */
+  _planChanged(task, oldDate, oldStart, oldEnd) {
+    if (task.planDate !== oldDate || task.planStart !== oldStart || task.planEnd !== oldEnd) {
+      task.planProgress = null;
+      task.planEndNotified = false;
+    }
+  }
+
   update(id, patch) {
     const task = this.get(id);
     if (!task) return null;
-    const allowed = ['title', 'note', 'quadrant', 'dueAt', 'remindAt', 'completed', 'order'];
+    const allowed = ['title', 'note', 'quadrant', 'dueAt', 'remindAt', 'completed', 'order',
+      'planDate', 'planStart', 'planEnd', 'planProgress'];
+    const oldDate = task.planDate;
+    const oldStart = task.planStart;
+    const oldEnd = task.planEnd;
     for (const key of allowed) {
       if (!(key in patch)) continue;
       const value = patch[key];
@@ -142,8 +226,49 @@ class TaskStore {
         const n = Number(value);
         if (!Number.isFinite(n)) throw new Error('无效的排序值');
         task.order = n;
+      } else if (key === 'planDate') {
+        if (value == null) {
+          // 移出计划：清空全部计划字段
+          task.planDate = null;
+          task.planStart = null;
+          task.planEnd = null;
+          task.planProgress = null;
+          task.planEndNotified = false;
+        } else {
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value))) throw new Error('无效的计划日期');
+          task.planDate = String(value);
+        }
+      } else if (key === 'planStart') {
+        if (value == null) {
+          task.planStart = null;
+        } else {
+          const n = Number(value);
+          if (!validSlotMinutes(n)) throw new Error('计划开始时间必须是 30 分钟的整数倍');
+          if (typeof task.planEnd === 'number' && n >= task.planEnd) throw new Error('开始时间必须早于结束时间');
+          task.planStart = n;
+          if (!task.planDate) task.planDate = todayLocalDate();
+        }
+      } else if (key === 'planEnd') {
+        if (value == null) {
+          task.planEnd = null;
+        } else {
+          const n = Number(value);
+          if (!validSlotMinutes(n)) throw new Error('计划结束时间必须是 30 分钟的整数倍');
+          if (typeof task.planStart === 'number' && n <= task.planStart) throw new Error('结束时间必须晚于开始时间');
+          task.planEnd = n;
+          if (!task.planDate) task.planDate = todayLocalDate();
+        }
+      } else if (key === 'planProgress') {
+        if (value == null) {
+          task.planProgress = null;
+        } else {
+          const n = Number(value);
+          if (!Number.isFinite(n) || n < 0 || n > 100) throw new Error('完成百分比必须在 0-100 之间');
+          task.planProgress = Math.round(n);
+        }
       }
     }
+    this._planChanged(task, oldDate, oldStart, oldEnd);
     task.updatedAt = new Date().toISOString();
     this._save();
     return task;
@@ -161,6 +286,14 @@ class TaskStore {
     const task = this.get(id);
     if (!task) return;
     task.remindedAt = remindAt;
+    task.updatedAt = new Date().toISOString();
+    this._save();
+  }
+
+  markPlanEndNotified(id) {
+    const task = this.get(id);
+    if (!task) return;
+    task.planEndNotified = true;
     task.updatedAt = new Date().toISOString();
     this._save();
   }
@@ -187,4 +320,4 @@ class TaskStore {
   }
 }
 
-module.exports = { TaskStore, QUADRANTS };
+module.exports = { TaskStore, QUADRANTS, todayLocalDate, nowLocalMinutes, validSlotMinutes };

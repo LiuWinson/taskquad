@@ -27,8 +27,12 @@ async function main() {
     dataDir,
     port: args.port,
     webRoot,
-    onRemind: (task) => {
-      console.log(`[reminder] 「${task.title}」提醒时间到（${task.remindAt}）`);
+    onRemind: (task, meta) => {
+      if (meta && meta.kind === 'planEnd') {
+        console.log(`[plan-end] 「${task.title}」的计划时间段已结束，等待反馈完成情况`);
+      } else {
+        console.log(`[reminder] 「${task.title}」提醒时间到（${task.remindAt}）`);
+      }
     },
   });
 

@@ -8,14 +8,16 @@ import {
   deleteTask,
   getHealth,
   type TaskPayload,
+  type TaskPatch,
 } from './api';
 import QuadrantView from './components/QuadrantView.vue';
 import ListView from './components/ListView.vue';
 import ArchiveView from './components/ArchiveView.vue';
+import DailyPlanView from './components/DailyPlanView.vue';
 import TaskDialog from './components/TaskDialog.vue';
 import SettingsDialog from './components/SettingsDialog.vue';
 
-type TabKey = 'quadrant' | 'list' | 'archive';
+type TabKey = 'quadrant' | 'list' | 'archive' | 'plan';
 
 const tab = ref<TabKey>('quadrant');
 const tasks = ref<Task[]>([]);
@@ -60,14 +62,23 @@ async function checkHealth() {
   }
 }
 
+// ---------- 响应式布局：≥1100px 显示右侧每日计划栏，窄屏用「计划」标签页 ----------
+const wide = ref(false);
+function updateWide() {
+  wide.value = window.innerWidth >= 1100;
+}
+
 onMounted(() => {
   checkHealth();
   reload();
   healthTimer = setInterval(checkHealth, 15000);
+  updateWide();
+  window.addEventListener('resize', updateWide);
 });
 
 onUnmounted(() => {
   if (healthTimer) clearInterval(healthTimer);
+  window.removeEventListener('resize', updateWide);
 });
 
 // ---------- 新建/编辑对话框 ----------
@@ -128,13 +139,65 @@ async function handleToggle(task: Task) {
   }
 }
 
-// ---------- 四象限拖拽移动（跨象限 + 象限内排序） ----------
-async function handleMove(id: string, quadrant: QuadrantKey, order: number) {
+// ---------- 四象限拖拽移动（跨象限 + 象限内排序；从计划拖回时清除计划） ----------
+async function handleMove(id: string, quadrant: QuadrantKey, order: number, clearPlan: boolean) {
   try {
-    await updateTask(id, { quadrant, order });
+    const patch: TaskPatch = { quadrant, order };
+    if (clearPlan) patch.planDate = null;
+    await updateTask(id, patch);
     await reload();
   } catch (e) {
     notify(e instanceof Error ? e.message : '移动失败');
+  }
+}
+
+// ---------- 每日计划操作 ----------
+async function planSchedule(taskId: string, planDate: string, start: number, end: number) {
+  try {
+    await updateTask(taskId, { planDate, planStart: start, planEnd: end });
+    notify('已加入每日计划');
+    await reload();
+  } catch (e) {
+    notify(e instanceof Error ? e.message : '安排计划失败');
+  }
+}
+
+async function planMoveBlock(taskId: string, planDate: string, start: number, end: number) {
+  try {
+    await updateTask(taskId, { planDate, planStart: start, planEnd: end });
+    await reload();
+  } catch (e) {
+    notify(e instanceof Error ? e.message : '调整时间段失败');
+  }
+}
+
+async function planSetProgress(taskId: string, progress: number | null) {
+  try {
+    await updateTask(taskId, { planProgress: progress });
+    notify('进度已保存');
+    await reload();
+  } catch (e) {
+    notify(e instanceof Error ? e.message : '保存进度失败');
+  }
+}
+
+async function planComplete(taskId: string) {
+  try {
+    await updateTask(taskId, { completed: true });
+    notify('任务已完结并归档');
+    await reload();
+  } catch (e) {
+    notify(e instanceof Error ? e.message : '操作失败');
+  }
+}
+
+async function planRemove(taskId: string) {
+  try {
+    await updateTask(taskId, { planDate: null });
+    notify('已移出计划');
+    await reload();
+  } catch (e) {
+    notify(e instanceof Error ? e.message : '操作失败');
   }
 }
 
@@ -169,6 +232,14 @@ const settingsOpen = ref(false);
           >
             归档
           </button>
+          <button
+            v-if="!wide"
+            class="tab"
+            :class="{ active: tab === 'plan' }"
+            @click="tab = 'plan'"
+          >
+            计划
+          </button>
         </nav>
       </div>
       <div class="topbar-right">
@@ -180,26 +251,50 @@ const settingsOpen = ref(false);
       </div>
     </header>
 
-    <main class="content">
-      <QuadrantView
-        v-if="tab === 'quadrant'"
-        :tasks="tasks"
-        :loading="loading"
-        @toggle="handleToggle"
-        @edit="openEdit"
-        @add="openCreate"
-        @move="handleMove"
-      />
-      <ListView
-        v-else-if="tab === 'list'"
-        :tasks="tasks"
-        :loading="loading"
-        @toggle="handleToggle"
-        @edit="openEdit"
-        @add="openCreate()"
-      />
-      <ArchiveView v-else @changed="reload" />
-    </main>
+    <div class="app-body">
+      <main class="content">
+        <QuadrantView
+          v-if="tab === 'quadrant'"
+          :tasks="tasks"
+          :loading="loading"
+          @toggle="handleToggle"
+          @edit="openEdit"
+          @add="openCreate"
+          @move="handleMove"
+        />
+        <ListView
+          v-else-if="tab === 'list'"
+          :tasks="tasks"
+          :loading="loading"
+          @toggle="handleToggle"
+          @edit="openEdit"
+          @add="openCreate()"
+        />
+        <ArchiveView v-else-if="tab === 'archive'" @changed="reload" />
+        <DailyPlanView
+          v-else
+          :tasks="tasks"
+          @schedule="planSchedule"
+          @move-block="planMoveBlock"
+          @set-progress="planSetProgress"
+          @complete="planComplete"
+          @remove-plan="planRemove"
+          @edit="openEdit"
+        />
+      </main>
+
+      <aside v-if="wide" class="plan-side">
+        <DailyPlanView
+          :tasks="tasks"
+          @schedule="planSchedule"
+          @move-block="planMoveBlock"
+          @set-progress="planSetProgress"
+          @complete="planComplete"
+          @remove-plan="planRemove"
+          @edit="openEdit"
+        />
+      </aside>
+    </div>
 
     <TaskDialog
       v-if="dialogOpen"

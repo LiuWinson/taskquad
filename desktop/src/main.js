@@ -74,11 +74,14 @@ function createTray() {
   tray.on('double-click', showMainWindow);
 }
 
-function notifyReminder(task) {
+function notifyReminder(task, meta) {
   try {
+    const kind = meta && meta.kind === 'planEnd' ? 'planEnd' : 'remind';
     const n = new Notification({
-      title: APP_NAME + ' · 任务提醒',
-      body: task.title + (task.dueAt ? '（截止 ' + formatTime(task.dueAt) + '）' : ''),
+      title: APP_NAME + (kind === 'planEnd' ? ' · 计划已结束' : ' · 任务提醒'),
+      body: kind === 'planEnd'
+        ? `「${task.title}」的时间段已结束，请反馈完成情况`
+        : task.title + (task.dueAt ? '（截止 ' + formatTime(task.dueAt) + '）' : ''),
     });
     n.on('click', showMainWindow);
     n.show();
