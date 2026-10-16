@@ -107,6 +107,11 @@ function clearSelection() {
 }
 
 function onBlockClick(e: MouseEvent, t: Task) {
+  // 边缘缩放松手后合成的 click：吞掉，不打开详情
+  if (resizeHandled) {
+    resizeHandled = false;
+    return;
+  }
   if (e.ctrlKey || e.metaKey) {
     e.stopPropagation();
     toggleSelect(t.id);
@@ -321,6 +326,8 @@ interface ResizeState {
   end: number;
 }
 const resizing = ref<ResizeState | null>(null);
+/** 缩放把手按下后抑制紧随的 click（避免松手误开任务详情） */
+let resizeHandled = false;
 
 function onHandleDown(e: PointerEvent, t: Task, mode: 'top' | 'bottom') {
   e.preventDefault();
@@ -328,6 +335,7 @@ function onHandleDown(e: PointerEvent, t: Task, mode: 'top' | 'bottom') {
   clearSelection();
   const el = e.currentTarget as HTMLElement;
   el.setPointerCapture(e.pointerId);
+  resizeHandled = true;
   resizing.value = {
     id: t.id,
     mode,
@@ -354,6 +362,10 @@ function onHandleUp() {
   const r = resizing.value;
   if (!r) return;
   resizing.value = null;
+  // 释放后浏览器会合成一次 click：短暂保留标记，让块级 click 吞掉这次误触
+  window.setTimeout(() => {
+    resizeHandled = false;
+  }, 150);
   if (r.end <= r.start) return;
   for (let m = r.start; m < r.end; m += 30) {
     const hit = blockCovering(m, r.id);
@@ -363,6 +375,13 @@ function onHandleUp() {
     }
   }
   emit('moveBlock', r.id, dateStr.value, r.start, r.end);
+}
+
+function onHandleCancel() {
+  resizing.value = null;
+  window.setTimeout(() => {
+    resizeHandled = false;
+  }, 150);
 }
 
 // ---------- 空槽位点按：从任务列表选择（触屏/无拖拽场景） ----------
@@ -584,6 +603,7 @@ function blockRect(t: Task): { top: string; height: string; hidden: boolean } {
             @pointerdown="onHandleDown($event, t, 'top')"
             @pointermove="onHandleMove"
             @pointerup="onHandleUp"
+            @pointercancel="onHandleCancel"
           ></div>
           <span class="plan-block-title">{{ t.title }}</span>
           <span class="plan-block-meta">
@@ -598,6 +618,7 @@ function blockRect(t: Task): { top: string; height: string; hidden: boolean } {
             @pointerdown="onHandleDown($event, t, 'bottom')"
             @pointermove="onHandleMove"
             @pointerup="onHandleUp"
+            @pointercancel="onHandleCancel"
           ></div>
         </div>
 
