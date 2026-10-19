@@ -30,9 +30,22 @@ export interface Task {
   repeat: RepeatType;
   /** 循环任务按日期的完成记录：{ 'YYYY-MM-DD': { completed?, progress?, notified? } } */
   occurrences: Record<string, Occurrence>;
+  /** 番茄工作法记录（最新在后） */
+  pomodoros: PomodoroRecord[];
 }
 
 export type RepeatType = 'none' | 'daily' | 'weekly' | 'monthly' | 'quarterly';
+
+export type PomodoroStatus = 'running' | 'completed' | 'interrupted';
+
+export interface PomodoroRecord {
+  id: string;
+  startAt: string;
+  endAt: string | null;
+  plannedMin: number;
+  status: PomodoroStatus;
+  reason: string | null;
+}
 
 export interface Occurrence {
   completed?: boolean;

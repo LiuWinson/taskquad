@@ -152,3 +152,103 @@ export function getInfo(): Promise<InfoResponse> {
 export function getHealth(): Promise<HealthResponse> {
   return request<HealthResponse>('/api/health');
 }
+
+// ---------- 番茄工作法 ----------
+
+export function startPomodoro(id: string, plannedMin?: number): Promise<TaskResponse> {
+  return request<TaskResponse>(`/api/tasks/${id}/pomodoro`, {
+    method: 'POST',
+    body: JSON.stringify(plannedMin == null ? { action: 'start' } : { action: 'start', plannedMin }),
+  });
+}
+
+export function completePomodoro(id: string): Promise<TaskResponse> {
+  return request<TaskResponse>(`/api/tasks/${id}/pomodoro`, {
+    method: 'POST',
+    body: JSON.stringify({ action: 'complete' }),
+  });
+}
+
+export function interruptPomodoro(id: string, reason: string): Promise<TaskResponse> {
+  return request<TaskResponse>(`/api/tasks/${id}/pomodoro`, {
+    method: 'POST',
+    body: JSON.stringify({ action: 'interrupt', reason }),
+  });
+}
+
+export interface PomodoroConfig {
+  ok?: boolean;
+  workMin: number;
+  breakMin: number;
+  longBreakMin: number;
+  longBreakEvery: number;
+}
+
+export function getPomodoroConfig(): Promise<PomodoroConfig> {
+  return request<PomodoroConfig>('/api/pomodoro-config');
+}
+
+export function savePomodoroConfig(payload: {
+  workMin: number;
+  breakMin: number;
+  longBreakMin: number;
+  longBreakEvery: number;
+}): Promise<PomodoroConfig> {
+  return request<PomodoroConfig>('/api/pomodoro-config', {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+// ---------- 大模型配置与报告 ----------
+
+export interface LlmConfigResponse {
+  ok: boolean;
+  baseUrl: string;
+  model: string;
+  hasKey: boolean;
+}
+
+export interface LlmTestResponse {
+  ok: boolean;
+  message: string;
+}
+
+export type ReportType = 'daily' | 'weekly' | 'monthly';
+
+export interface ReportResponse {
+  ok: boolean;
+  report: string;
+  meta: {
+    type: ReportType;
+    doneCount: number;
+    planCount: number;
+    periodLabel: string;
+  };
+}
+
+export function getLlmConfig(): Promise<LlmConfigResponse> {
+  return request<LlmConfigResponse>('/api/llm-config');
+}
+
+export function saveLlmConfig(payload: {
+  baseUrl: string;
+  model: string;
+  apiKey?: string;
+}): Promise<LlmConfigResponse> {
+  return request<LlmConfigResponse>('/api/llm-config', {
+    method: 'PUT',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function testLlm(): Promise<LlmTestResponse> {
+  return request<LlmTestResponse>('/api/llm-test', { method: 'POST', body: '{}' });
+}
+
+export function generateReport(type: ReportType): Promise<ReportResponse> {
+  return request<ReportResponse>('/api/reports/generate', {
+    method: 'POST',
+    body: JSON.stringify({ type }),
+  });
+}

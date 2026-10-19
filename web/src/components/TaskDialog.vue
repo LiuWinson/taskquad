@@ -3,7 +3,7 @@ import { ref, inject } from 'vue';
 import type { QuadrantKey, Task } from '../types';
 import { QUADRANTS } from '../types';
 import type { TaskPayload } from '../api';
-import { isoToLocalInput, localInputToIso, dateToLocalInput } from '../time';
+import { isoToLocalInput, localInputToIso, dateToLocalInput, pomodoroStats } from '../time';
 
 const props = defineProps<{
   task: Task | null;
@@ -14,11 +14,13 @@ const emit = defineEmits<{
   close: [];
   save: [payload: TaskPayload];
   delete: [id: string];
+  pomodoro: [];
 }>();
 
 const notify = inject<(message: string) => void>('notify', () => {});
 
 const isEdit = props.task !== null;
+const pomo = pomodoroStats(props.task?.pomodoros);
 
 const title = ref(props.task?.title ?? '');
 const note = ref(props.task?.note ?? '');
@@ -145,6 +147,20 @@ function save() {
             </button>
           </div>
           <span class="field-hint">可留空；选择截止时间后可一键填充提醒</span>
+        </div>
+
+        <div v-if="isEdit && task && !task.completed" class="field">
+          <span class="field-label">番茄工作法</span>
+          <div class="pomo-task-row">
+            <span class="pomo-task-stats">
+              🍅 已完成 {{ pomo.done }} 个 · 打断 {{ pomo.interrupted }} 次
+              <template v-if="pomo.lastReason">（最近打断：{{ pomo.lastReason }}）</template>
+            </span>
+            <button class="btn btn-ghost pomo-start-btn" type="button" @click="emit('pomodoro')">
+              🍅 开始番茄
+            </button>
+          </div>
+          <span class="field-hint">番茄进行中可在顶部条查看倒计时；打断需填写原因，恢复后重新开始（时长可在「设置 → 番茄」调整）</span>
         </div>
       </div>
 

@@ -1,6 +1,14 @@
 <script setup lang="ts">
 import { ref, inject, onMounted } from 'vue';
-import { getInfo, type InfoResponse } from '../api';
+import {
+  getInfo,
+  getLlmConfig,
+  saveLlmConfig,
+  testLlm,
+  getPomodoroConfig,
+  savePomodoroConfig,
+  type InfoResponse,
+} from '../api';
 
 defineProps<{
   connected: boolean;
@@ -14,6 +22,18 @@ const notify = inject<(message: string) => void>('notify', () => {});
 
 const info = ref<InfoResponse | null>(null);
 const loading = ref(false);
+const llmBaseUrl = ref('');
+const llmModel = ref('');
+const llmApiKey = ref('');
+const llmHasKey = ref(false);
+const llmTesting = ref(false);
+const llmStatus = ref('');
+const llmStatusOk = ref(false);
+const pomoWork = ref(25);
+const pomoBreak = ref(5);
+const pomoLongBreak = ref(15);
+const pomoLongEvery = ref(4);
+const pomoSaving = ref(false);
 
 async function load() {
   loading.value = true;
@@ -26,7 +46,86 @@ async function load() {
   }
 }
 
-onMounted(load);
+async function loadLlm() {
+  try {
+    const cfg = await getLlmConfig();
+    llmBaseUrl.value = cfg.baseUrl;
+    llmModel.value = cfg.model;
+    llmHasKey.value = cfg.hasKey;
+  } catch {
+    /* 服务器未就绪时忽略 */
+  }
+}
+
+async function loadPomodoro() {
+  try {
+    const cfg = await getPomodoroConfig();
+    pomoWork.value = cfg.workMin;
+    pomoBreak.value = cfg.breakMin;
+    pomoLongBreak.value = cfg.longBreakMin;
+    pomoLongEvery.value = cfg.longBreakEvery;
+  } catch {
+    /* 保持默认 */
+  }
+}
+
+async function savePomodoro() {
+  pomoSaving.value = true;
+  try {
+    const cfg = await savePomodoroConfig({
+      workMin: pomoWork.value,
+      breakMin: pomoBreak.value,
+      longBreakMin: pomoLongBreak.value,
+      longBreakEvery: pomoLongEvery.value,
+    });
+    pomoWork.value = cfg.workMin;
+    pomoBreak.value = cfg.breakMin;
+    pomoLongBreak.value = cfg.longBreakMin;
+    pomoLongEvery.value = cfg.longBreakEvery;
+    notify('番茄设置已保存');
+  } catch (e) {
+    notify(e instanceof Error ? e.message : '保存失败');
+  } finally {
+    pomoSaving.value = false;
+  }
+}
+
+async function saveLlm() {
+  try {
+    const res = await saveLlmConfig({
+      baseUrl: llmBaseUrl.value.trim(),
+      model: llmModel.value.trim(),
+      apiKey: llmApiKey.value.trim() ? llmApiKey.value.trim() : undefined,
+    });
+    llmHasKey.value = res.hasKey;
+    llmApiKey.value = '';
+    notify('大模型配置已保存');
+  } catch (e) {
+    notify(e instanceof Error ? e.message : '保存失败');
+  }
+}
+
+async function doTestLlm() {
+  llmTesting.value = true;
+  llmStatus.value = '测试中…';
+  llmStatusOk.value = false;
+  try {
+    const res = await testLlm();
+    llmStatusOk.value = res.ok;
+    llmStatus.value = res.message;
+  } catch (e) {
+    llmStatusOk.value = false;
+    llmStatus.value = e instanceof Error ? e.message : '测试失败';
+  } finally {
+    llmTesting.value = false;
+  }
+}
+
+onMounted(() => {
+  load();
+  loadLlm();
+  loadPomodoro();
+});
 
 async function copyUrl(url: string) {
   try {
@@ -117,6 +216,72 @@ function sendTestNotification() {
             </div>
           </template>
           <div v-else class="settings-note">未检测到局域网地址</div>
+        </div>
+
+        <div class="settings-section">
+          <h3 class="settings-section-title">番茄工作法</h3>
+          <div class="pomo-config-grid">
+            <label class="pomo-config-item">
+              <span class="llm-label">工作时间（分钟）</span>
+              <input v-model.number="pomoWork" class="input" type="number" min="5" max="120" />
+            </label>
+            <label class="pomo-config-item">
+              <span class="llm-label">短休息（分钟）</span>
+              <input v-model.number="pomoBreak" class="input" type="number" min="1" max="60" />
+            </label>
+            <label class="pomo-config-item">
+              <span class="llm-label">大休息（分钟）</span>
+              <input v-model.number="pomoLongBreak" class="input" type="number" min="1" max="120" />
+            </label>
+            <label class="pomo-config-item">
+              <span class="llm-label">几个番茄后大休息</span>
+              <input v-model.number="pomoLongEvery" class="input" type="number" min="1" max="12" />
+            </label>
+          </div>
+          <div class="settings-actions">
+            <button class="settings-btn" :disabled="pomoSaving" @click="savePomodoro">
+              {{ pomoSaving ? '保存中…' : '保存番茄设置' }}
+            </button>
+          </div>
+          <span class="settings-note">
+            默认 25 分钟工作 / 5 分钟短休息 / 每 4 个番茄后 15 分钟大休息；开始番茄时使用此工作时间
+          </span>
+        </div>
+
+        <div class="settings-section">
+          <h3 class="settings-section-title">大模型（生成日报/周报/月报）</h3>
+          <div class="llm-form">
+            <label class="llm-field">
+              <span class="llm-label">接口地址（OpenAI 兼容）</span>
+              <input v-model="llmBaseUrl" class="input" placeholder="https://api.deepseek.com/v1" />
+            </label>
+            <label class="llm-field">
+              <span class="llm-label">模型名</span>
+              <input v-model="llmModel" class="input" placeholder="deepseek-chat" />
+            </label>
+            <label class="llm-field">
+              <span class="llm-label">API Key
+                <em v-if="llmHasKey" class="llm-has-key">（已配置，留空则不修改）</em>
+                <em v-else class="llm-no-key">（未配置）</em>
+              </span>
+              <input v-model="llmApiKey" class="input" type="password" placeholder="sk-..." />
+            </label>
+            <div class="settings-actions">
+              <button class="settings-btn" @click="saveLlm">保存配置</button>
+              <button class="settings-btn" :disabled="llmTesting" @click="doTestLlm">
+                {{ llmTesting ? '测试中…' : '测试连接' }}
+              </button>
+            </div>
+            <span
+              v-if="llmStatus"
+              class="settings-note"
+              :class="llmStatusOk ? 'llm-ok' : 'llm-err'"
+              >{{ llmStatus }}</span
+            >
+            <span class="settings-note">
+              密钥只保存在本机电脑的配置文件里；DeepSeek 用 https://api.deepseek.com/v1 + deepseek-chat
+            </span>
+          </div>
         </div>
 
         <div class="settings-section">

@@ -41,7 +41,10 @@
   "planProgress": 60,
   "planEndNotified": false,
   "repeat": "daily",
-  "occurrences": { "2026-10-16": { "completed": true, "progress": 60, "notified": true } }
+  "occurrences": { "2026-10-16": { "completed": true, "progress": 60, "notified": true } },
+  "pomodoros": [
+    { "id": "uuid", "startAt": "<ISO>", "endAt": "<ISO>", "plannedMin": 25, "status": "completed", "reason": null }
+  ]
 }
 ```
 
@@ -54,6 +57,9 @@
 - **循环任务字段**（1.3.0 新增，旧数据自动补默认值）：
   - `repeat`：`none | daily | weekly | monthly | quarterly`。`planDate` 为基准日（锚点）；命中规则：daily=每天；weekly=同星期几；monthly=同号（目标月不足时取月末，如 31 日 → 2 月 28/29 日）；quarterly=同号且同季（1/4/7/10 月起）。
   - `occurrences`：按日期记录的当天完成状态 `{ "YYYY-MM-DD": { completed?, progress?, notified? } }`。循环任务每天的完成/反馈互不影响；任务本体保持未完成（在四象限中持续循环），要停止循环设置 `repeat: none`。
+- **番茄工作法字段**（1.4.0 新增，旧数据补空数组）：
+  - `pomodoros`：番茄记录数组，最新在后。每条：`{ id, startAt ISO, endAt ISO|null, plannedMin 5..180, status: running|completed|interrupted, reason: string|null }`。
+  - 同一时刻**全局只允许一个 running 番茄**（409 响应提示先完成或打断）。
 
 ## 3. 接口列表
 
@@ -143,6 +149,42 @@
 ```
 
 `tasks` 仅含 `completedAt` 落在 `[start, end]` 内的任务，按 `completedAt` 降序。
+
+### 3.8 POST /api/tasks/:id/pomodoro
+番茄工作法操作。请求体：
+
+```json
+{ "action": "start | complete | interrupt", "plannedMin": 25, "reason": "打断原因" }
+```
+
+- `start`：开始新番茄（`plannedMin` 5..180；**缺省取 `/api/pomodoro-config` 的 `workMin`**）。**同一时刻全局只允许一个进行中的番茄**，已有则 `409 { "error": "已有进行中的番茄：..." }`。
+- `complete`：完成当前番茄（`status=completed`，`endAt=now`）。
+- `interrupt`：打断当前番茄，**`reason` 必填**（trim 后非空，≤200 字），否则 `400`。
+- 服务端对到点的番茄（`startAt + plannedMin` 已过）自动完结（调度器每 15 秒），并触发一次桌面通知（`kind: 'pomodoroEnd'`）。
+- 响应 `200`：`{ "task": Task }`；任务不存在 `404`。
+
+### 3.9 GET /api/pomodoro-config · PUT /api/pomodoro-config
+番茄时长配置（保存于 `config.json` 的 `pomodoro` 字段）：
+
+- `GET` → `{ "ok": true, "workMin": 25, "breakMin": 5, "longBreakMin": 15, "longBreakEvery": 4 }`
+- `PUT { workMin?, breakMin?, longBreakMin?, longBreakEvery? }` → 校验并保存，返回同上：
+  - `workMin` 5..120、`breakMin` 1..60、`longBreakMin` 1..120、`longBreakEvery` 1..12（整数），越界 `400`。
+- 前端据此外显休息阶段：每完成 `longBreakEvery` 个番茄后进入 `longBreakMin` 分钟大休息，否则 `breakMin` 分钟短休息（按当天已完成番茄数计算）。
+
+### 3.10 GET /api/llm-config · PUT /api/llm-config · POST /api/llm-test
+大模型（OpenAI 兼容接口）配置，保存在 `config.json` 的 `llm` 字段（密钥不回传）：
+
+- `GET` → `{ "ok": true, "baseUrl": "...", "model": "...", "hasKey": true|false }`
+- `PUT { "baseUrl", "model", "apiKey"? }` → 保存（`apiKey` 缺省则保留原值），返回同上结构
+- `POST /api/llm-test` → `{ "ok": true|false, "message": "连接成功/错误原因" }`
+
+### 3.11 POST /api/reports/generate
+生成日报/周报/月报。请求体：`{ "type": "daily | weekly | monthly" }`。服务端收集素材后调用大模型：
+
+- 动工窗口：daily=前一日完成 + 今天计划；weekly=上周完成 + 本周计划；monthly=上月完成 + 本月计划。
+- 素材含每项任务的象限、完成时间、番茄完成/中断数量；计划含计划时间段或截止时间。
+- 响应 `200`：`{ "ok": true, "report": "<Markdown 文本>", "meta": { "type", "doneCount", "planCount", "periodLabel" } }`
+- 未配置 API Key 或调用失败 → `500 { "error": "..." }`。
 
 ## 4. 提醒机制（服务端负责 Windows 桌面提醒）
 

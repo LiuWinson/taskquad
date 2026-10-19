@@ -30,3 +30,4 @@ tools/.migrate-data/
 
 # 发布流程临时文件
 tools/_release_*
+tools/_upload_*

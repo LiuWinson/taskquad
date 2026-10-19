@@ -30,6 +30,11 @@ function createReminderScheduler(store, onRemind, intervalMs = 15000) {
     const now = Date.now();
     const today = todayLocalDate();
     const nowMin = nowLocalMinutes();
+    // ④ 番茄到点自动完结（并弹一次提醒）
+    const pomoDone = store.autoCompletePomodoros(now);
+    for (const t of pomoDone) {
+      fire(t, 'pomodoroEnd');
+    }
     for (const task of store.tasks) {
       // ① 普通提醒
       if (!task.completed && task.remindAt) {

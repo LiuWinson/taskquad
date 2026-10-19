@@ -154,3 +154,28 @@ export function repeatLabel(repeat: string): string {
       return '';
   }
 }
+
+// ---------- 番茄工作法 ----------
+
+/** 番茄倒计时显示 mm:ss（不足 1 秒按 0） */
+export function fmtCountdown(remainMs: number): string {
+  const s = Math.max(0, Math.floor(remainMs / 1000));
+  return `${pad2(Math.floor(s / 60))}:${pad2(s % 60)}`;
+}
+
+/** 任务番茄统计：完成数 / 中断数 / 最近一次打断原因 */
+export function pomodoroStats(
+  pomodoros: { status: string; reason?: string | null }[] | undefined,
+): { done: number; interrupted: number; lastReason: string | null } {
+  let done = 0;
+  let interrupted = 0;
+  let lastReason: string | null = null;
+  for (const p of pomodoros || []) {
+    if (p.status === 'completed') done += 1;
+    else if (p.status === 'interrupted') {
+      interrupted += 1;
+      if (p.reason) lastReason = p.reason;
+    }
+  }
+  return { done, interrupted, lastReason };
+}

@@ -6,6 +6,8 @@ const crypto = require('crypto');
 
 const QUADRANTS = ['IU', 'IN', 'NU', 'NN'];
 const REPEATS = ['none', 'daily', 'weekly', 'monthly', 'quarterly'];
+const POMODORO_STATUS = ['running', 'completed', 'interrupted'];
+const POMODORO_DEFAULT_MIN = 25;
 const SCHEMA_VERSION = 1;
 const MAX_BACKUPS = 30;
 
@@ -102,6 +104,40 @@ class TaskStore {
     } catch (_) {}
   }
 
+  /** 番茄时长配置（工作时间 / 短休息 / 长休息 / 几个番茄后长休息） */
+  getPomodoroConfig() {
+    const c = this.config.pomodoro || {};
+    const norm = (v, min, max, def) =>
+      (typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max ? Math.round(v) : def);
+    return {
+      workMin: norm(c.workMin, 5, 120, 25),
+      breakMin: norm(c.breakMin, 1, 60, 5),
+      longBreakMin: norm(c.longBreakMin, 1, 120, 15),
+      longBreakEvery: norm(c.longBreakEvery, 1, 12, 4),
+    };
+  }
+
+  setPomodoroConfig(patch) {
+    const cur = this.getPomodoroConfig();
+    const num = (v, min, max, name) => {
+      if (v == null) return undefined;
+      const n = Number(v);
+      if (!Number.isFinite(n) || n < min || n > max) {
+        throw new Error(name + ' 需在 ' + min + '-' + max + ' 之间');
+      }
+      return Math.round(n);
+    };
+    const next = {
+      workMin: num(patch.workMin, 5, 120, '工作时间') ?? cur.workMin,
+      breakMin: num(patch.breakMin, 1, 60, '休息时间') ?? cur.breakMin,
+      longBreakMin: num(patch.longBreakMin, 1, 120, '大休息时间') ?? cur.longBreakMin,
+      longBreakEvery: num(patch.longBreakEvery, 1, 12, '几个番茄后大休息') ?? cur.longBreakEvery,
+    };
+    this.config.pomodoro = next;
+    this.saveConfig();
+    return next;
+  }
+
   _load() {
     fs.mkdirSync(this.dataDir, { recursive: true });
     this._backupIfChanged();
@@ -172,6 +208,19 @@ class TaskStore {
         t.title = t.title || '（未命名任务）';
         t.quadrant = QUADRANTS.includes(t.quadrant) ? t.quadrant : 'NN';
       }
+      // 番茄记录字段（1.4.0 新增）：旧数据补空数组，逐条校正
+      if (!Array.isArray(t.pomodoros)) t.pomodoros = [];
+      t.pomodoros = t.pomodoros.filter((p) => p && typeof p === 'object' && typeof p.startAt === 'string');
+      for (const p of t.pomodoros) {
+        p.id = p.id || crypto.randomUUID();
+        if (!POMODORO_STATUS.includes(p.status)) p.status = 'completed';
+        if (typeof p.plannedMin !== 'number' || !Number.isFinite(p.plannedMin)) p.plannedMin = POMODORO_DEFAULT_MIN;
+        p.plannedMin = Math.max(5, Math.min(180, Math.round(p.plannedMin)));
+        if (p.endAt !== null && typeof p.endAt !== 'string') p.endAt = null;
+        if (p.reason !== null && typeof p.reason !== 'string') p.reason = null;
+        if (p.status === 'running' && p.endAt) p.status = 'completed';
+        if (p.status !== 'running' && !p.endAt) p.endAt = p.startAt;
+      }
     }
   }
 
@@ -231,10 +280,99 @@ class TaskStore {
       planEndNotified: false,
       repeat: 'none',
       occurrences: {},
+      pomodoros: [],
     };
     this.tasks.push(task);
     this._save();
     return task;
+  }
+
+  /** 全局是否有进行中的番茄（番茄是专注会话，同时只允许一个） */
+  findRunningPomodoro() {
+    for (const t of this.tasks) {
+      for (const p of t.pomodoros || []) {
+        if (p.status === 'running') return { task: t, record: p };
+      }
+    }
+    return null;
+  }
+
+  /** 开始一个新的番茄（若已有进行中的番茄则抛 CONFLICT）；默认时长取配置的工作时间 */
+  startPomodoro(id, plannedMin) {
+    const running = this.findRunningPomodoro();
+    if (running) {
+      const err = new Error(`已有进行中的番茄：「${running.task.title}」，请先完成或打断`);
+      err.code = 'CONFLICT';
+      throw err;
+    }
+    const task = this.get(id);
+    if (!task) return null;
+    const cfg = this.getPomodoroConfig();
+    const n = plannedMin == null ? cfg.workMin : Number(plannedMin);
+    if (!Number.isFinite(n) || n < 5 || n > 180) throw new Error('番茄时长需在 5-180 分钟之间');
+    if (!Array.isArray(task.pomodoros)) task.pomodoros = [];
+    task.pomodoros.push({
+      id: crypto.randomUUID(),
+      startAt: new Date().toISOString(),
+      endAt: null,
+      plannedMin: Math.round(n),
+      status: 'running',
+      reason: null,
+    });
+    task.updatedAt = new Date().toISOString();
+    this._save();
+    return task;
+  }
+
+  /** 完成当前番茄（记录完整完成） */
+  completePomodoro(id) {
+    const task = this.get(id);
+    if (!task) return null;
+    const rec = (task.pomodoros || []).find((p) => p.status === 'running');
+    if (!rec) throw new Error('该任务没有进行中的番茄');
+    rec.status = 'completed';
+    rec.endAt = new Date().toISOString();
+    task.updatedAt = new Date().toISOString();
+    this._save();
+    return task;
+  }
+
+  /** 打断当前番茄：必须写清打断原因；之后重新开始会生成新的番茄记录 */
+  interruptPomodoro(id, reason) {
+    const r = String(reason == null ? '' : reason).trim();
+    if (!r) throw new Error('请填写打断原因');
+    const task = this.get(id);
+    if (!task) return null;
+    const rec = (task.pomodoros || []).find((p) => p.status === 'running');
+    if (!rec) throw new Error('该任务没有进行中的番茄');
+    rec.status = 'interrupted';
+    rec.endAt = new Date().toISOString();
+    rec.reason = r.slice(0, 200);
+    task.updatedAt = new Date().toISOString();
+    this._save();
+    return task;
+  }
+
+  /** 调度器用：到点的番茄自动完结（endAt = startAt + plannedMin） */
+  autoCompletePomodoros(nowMs = Date.now()) {
+    const done = [];
+    let changed = false;
+    for (const t of this.tasks) {
+      for (const p of t.pomodoros || []) {
+        if (p.status !== 'running') continue;
+        const startMs = Date.parse(p.startAt);
+        if (!Number.isFinite(startMs)) continue;
+        if (nowMs >= startMs + p.plannedMin * 60000) {
+          p.status = 'completed';
+          p.endAt = new Date(startMs + p.plannedMin * 60000).toISOString();
+          t.updatedAt = new Date().toISOString();
+          changed = true;
+          done.push(t);
+        }
+      }
+    }
+    if (changed) this._save();
+    return done;
   }
 
   /** 计划字段变更时重置反馈与通知状态 */

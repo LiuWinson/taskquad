@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import type { Task, RepeatType } from '../types';
 import { quadrantOf } from '../types';
-import { matchesRepeat, repeatLabel } from '../time';
+import { matchesRepeat, repeatLabel, pomodoroStats } from '../time';
 import { setDrag, getDrag, clearDrag as clearBus } from '../dragBus';
 
 const props = defineProps<{
@@ -23,6 +23,7 @@ const emit = defineEmits<{
   occProgress: [taskId: string, date: string, progress: number | null];
   occComplete: [taskId: string, date: string, done: boolean];
   stopRepeat: [taskId: string];
+  pomodoro: [taskId: string];
 }>();
 
 const REPEAT_OPTIONS: { value: RepeatType; label: string }[] = [
@@ -531,6 +532,15 @@ function doEditTask() {
   emit('edit', editing.value);
   closeEditor();
 }
+function doPomodoro() {
+  if (!editing.value) return;
+  const id = editing.value.id;
+  closeEditor();
+  emit('pomodoro', id);
+}
+function pomoOf(t: Task): { done: number; interrupted: number; lastReason: string | null } {
+  return pomodoroStats(t.pomodoros);
+}
 
 // 时间选择项（半小时粒度，仅工作时间轴 07:00-23:00）
 const startOptions: number[] = [];
@@ -815,6 +825,26 @@ function blockRect(t: Task): { top: string; height: string; hidden: boolean } {
           </div>
           <span class="plan-field-tip">
             循环任务按规则在对应日期的时间段重复出现，每天的完成/反馈互不影响
+          </span>
+        </div>
+
+        <div class="plan-field">
+          <label class="plan-label">
+            🍅 番茄工作法：已完成 {{ pomoOf(editing).done }} 个 · 打断
+            {{ pomoOf(editing).interrupted }} 次
+          </label>
+          <div class="plan-range">
+            <button
+              class="plan-mini-btn"
+              :disabled="blockDone(editing)"
+              title="开始一个番茄（时长可在「设置 → 番茄」中调整）"
+              @click="doPomodoro"
+            >
+              🍅 开始番茄
+            </button>
+          </div>
+          <span v-if="pomoOf(editing).lastReason" class="plan-field-tip">
+            最近一次打断原因：{{ pomoOf(editing).lastReason }}
           </span>
         </div>
 

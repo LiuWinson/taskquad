@@ -80,13 +80,17 @@ function createTray() {
 
 function notifyReminder(task, meta) {
   try {
-    const kind = meta && meta.kind === 'planEnd' ? 'planEnd' : 'remind';
-    const n = new Notification({
-      title: APP_NAME + (kind === 'planEnd' ? ' · 计划已结束' : ' · 任务提醒'),
-      body: kind === 'planEnd'
-        ? `「${task.title}」的时间段已结束，请反馈完成情况`
-        : task.title + (task.dueAt ? '（截止 ' + formatTime(task.dueAt) + '）' : ''),
-    });
+    const kind = meta && meta.kind ? meta.kind : 'remind';
+    let title = APP_NAME + ' · 任务提醒';
+    let body = task.title + (task.dueAt ? '（截止 ' + formatTime(task.dueAt) + '）' : '');
+    if (kind === 'planEnd') {
+      title = APP_NAME + ' · 计划已结束';
+      body = `「${task.title}」的时间段已结束，请反馈完成情况`;
+    } else if (kind === 'pomodoroEnd') {
+      title = APP_NAME + ' · 番茄完成';
+      body = `「${task.title}」的番茄已完成，休息一下再开始下一个`;
+    }
+    const n = new Notification({ title, body });
     n.on('click', showMainWindow);
     n.show();
   } catch (e) {

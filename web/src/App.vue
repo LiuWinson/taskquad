@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, provide } from 'vue';
+import { ref, computed, onMounted, onUnmounted, provide } from 'vue';
 import type { Task, QuadrantKey } from './types';
 import {
   getTasks,
@@ -7,6 +7,10 @@ import {
   updateTask,
   deleteTask,
   getHealth,
+  startPomodoro,
+  completePomodoro,
+  interruptPomodoro,
+  getPomodoroConfig,
   type TaskPayload,
   type TaskPatch,
 } from './api';
@@ -16,8 +20,11 @@ import ArchiveView from './components/ArchiveView.vue';
 import DailyPlanView from './components/DailyPlanView.vue';
 import TaskDialog from './components/TaskDialog.vue';
 import SettingsDialog from './components/SettingsDialog.vue';
+import PomodoroControl from './components/PomodoroControl.vue';
+import BreakBar from './components/BreakBar.vue';
+import ReportView from './components/ReportView.vue';
 
-type TabKey = 'quadrant' | 'list' | 'archive' | 'plan';
+type TabKey = 'quadrant' | 'list' | 'archive' | 'plan' | 'report';
 
 const tab = ref<TabKey>('quadrant');
 const tasks = ref<Task[]>([]);
@@ -87,6 +94,7 @@ function updateWide() {
 onMounted(() => {
   checkHealth();
   reload();
+  loadPomoConfig();
   healthTimer = setInterval(checkHealth, 15000);
   updateWide();
   window.addEventListener('resize', updateWide);
@@ -286,6 +294,121 @@ async function planRemove(taskId: string) {
   }
 }
 
+// ---------- 番茄工作法 ----------
+const activePomodoro = computed(() => {
+  for (const t of tasks.value) {
+    const rec = (t.pomodoros || []).find((p) => p.status === 'running');
+    if (rec) return { task: t, record: rec };
+  }
+  return null;
+});
+
+// 番茄时长配置
+const pomoConfig = ref<{ workMin: number; breakMin: number; longBreakMin: number; longBreakEvery: number }>({
+  workMin: 25,
+  breakMin: 5,
+  longBreakMin: 15,
+  longBreakEvery: 4,
+});
+
+async function loadPomoConfig() {
+  try {
+    const cfg = await getPomodoroConfig();
+    pomoConfig.value = {
+      workMin: cfg.workMin,
+      breakMin: cfg.breakMin,
+      longBreakMin: cfg.longBreakMin,
+      longBreakEvery: cfg.longBreakEvery,
+    };
+  } catch {
+    /* 保持默认值 */
+  }
+}
+
+// 休息阶段（短休息 / 大休息）
+const breakState = ref<{
+  long: boolean;
+  totalMin: number;
+  startedAt: number;
+  taskTitle: string;
+  taskId: string;
+} | null>(null);
+
+/** 今日已完成的番茄数（用于判断是否该长休息） */
+function completedPomodorosToday(): number {
+  const today = todayKey.value;
+  let count = 0;
+  for (const t of tasks.value) {
+    for (const p of t.pomodoros || []) {
+      if (p.status !== 'completed' || !p.startAt) continue;
+      const d = new Date(p.startAt);
+      const ds = localDateStr(d);
+      if (ds === today) count += 1;
+    }
+  }
+  return count;
+}
+
+function startBreak(taskTitle: string, taskId: string) {
+  if (!pomoConfig.value) return;
+  const doneToday = completedPomodorosToday();
+  const isLong = pomoConfig.value.longBreakEvery > 0 && doneToday > 0 &&
+    doneToday % pomoConfig.value.longBreakEvery === 0;
+  breakState.value = {
+    long: isLong,
+    totalMin: isLong ? pomoConfig.value.longBreakMin : pomoConfig.value.breakMin,
+    startedAt: Date.now(),
+    taskTitle,
+    taskId,
+  };
+}
+
+async function handleStartPomodoro(taskId: string, minutes?: number) {
+  breakState.value = null; // 开始工作即结束休息阶段
+  try {
+    await startPomodoro(taskId, minutes);
+    notify('番茄已开始 🍅');
+    await reload();
+  } catch (e) {
+    notify(e instanceof Error ? e.message : '开始番茄失败');
+  }
+}
+
+async function handleCompletePomodoro() {
+  const cur = activePomodoro.value;
+  if (!cur) return;
+  try {
+    await completePomodoro(cur.task.id);
+    await reload();
+    startBreak(cur.task.title, cur.task.id);
+    notify('番茄完成 🍅 进入休息');
+  } catch (e) {
+    notify(e instanceof Error ? e.message : '操作失败');
+  }
+}
+
+async function handleInterruptPomodoro(reason: string) {
+  const cur = activePomodoro.value;
+  if (!cur) return;
+  try {
+    await interruptPomodoro(cur.task.id, reason);
+    notify('已打断，原因已记录');
+    await reload();
+  } catch (e) {
+    notify(e instanceof Error ? e.message : '操作失败');
+  }
+}
+
+function handleBreakEnded() {
+  notify('休息结束，可以开始下一个番茄了');
+}
+
+function handleBreakNext() {
+  const cur = breakState.value;
+  breakState.value = null;
+  if (cur) handleStartPomodoro(cur.taskId);
+}
+
 // ---------- 设置对话框 ----------
 const settingsOpen = ref(false);
 </script>
@@ -325,6 +448,13 @@ const settingsOpen = ref(false);
           >
             计划
           </button>
+          <button
+            class="tab"
+            :class="{ active: tab === 'report' }"
+            @click="tab = 'report'"
+          >
+            报告
+          </button>
         </nav>
       </div>
       <div class="topbar-right">
@@ -335,6 +465,25 @@ const settingsOpen = ref(false);
         <button class="icon-btn" @click="settingsOpen = true">⚙ 设置</button>
       </div>
     </header>
+
+    <PomodoroControl
+      v-if="activePomodoro"
+      :task="activePomodoro.task"
+      :record="activePomodoro.record"
+      @complete="handleCompletePomodoro"
+      @interrupt="handleInterruptPomodoro"
+    />
+
+    <BreakBar
+      v-if="breakState && !activePomodoro"
+      :long="breakState.long"
+      :total-min="breakState.totalMin"
+      :started-at="breakState.startedAt"
+      :task-title="breakState.taskTitle"
+      @skip="breakState = null"
+      @next="handleBreakNext"
+      @ended="handleBreakEnded"
+    />
 
     <div class="app-body">
       <main class="content">
@@ -356,6 +505,7 @@ const settingsOpen = ref(false);
           @add="openCreate()"
         />
         <ArchiveView v-else-if="tab === 'archive'" @changed="reload" />
+        <ReportView v-else-if="tab === 'report'" />
         <DailyPlanView
           v-else
           :tasks="tasks"
@@ -371,6 +521,7 @@ const settingsOpen = ref(false);
           @occ-progress="planOccProgress"
           @occ-complete="planOccComplete"
           @stop-repeat="planStopRepeat"
+          @pomodoro="handleStartPomodoro"
         />
       </main>
 
@@ -389,6 +540,7 @@ const settingsOpen = ref(false);
           @occ-progress="planOccProgress"
           @occ-complete="planOccComplete"
           @stop-repeat="planStopRepeat"
+          @pomodoro="handleStartPomodoro"
         />
       </aside>
     </div>
@@ -400,6 +552,7 @@ const settingsOpen = ref(false);
       @close="closeDialog"
       @save="handleSave"
       @delete="handleDeleteTask"
+      @pomodoro="dialogTask ? handleStartPomodoro(dialogTask.id) : null"
     />
 
     <SettingsDialog

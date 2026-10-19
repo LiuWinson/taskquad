@@ -30,6 +30,8 @@ async function main() {
     onRemind: (task, meta) => {
       if (meta && meta.kind === 'planEnd') {
         console.log(`[plan-end] 「${task.title}」的计划时间段已结束，等待反馈完成情况`);
+      } else if (meta && meta.kind === 'pomodoroEnd') {
+        console.log(`[pomodoro] 「${task.title}」的番茄已完成`);
       } else {
         console.log(`[reminder] 「${task.title}」提醒时间到（${task.remindAt}）`);
       }

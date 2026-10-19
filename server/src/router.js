@@ -4,8 +4,10 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { QUADRANTS } = require('./store');
+const { getLlmConfig, saveLlmConfig, llmTest, llmChat } = require('./llm');
+const { gather, buildPrompt } = require('./reports');
 
-const VERSION = '1.3.1';
+const VERSION = '1.4.1';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -125,6 +127,34 @@ function createRouter(store, options = {}) {
       });
       return sendJson(res, 201, { task });
     }
+    // /api/tasks/:id/pomodoro （番茄：start / complete / interrupt）
+    const pomMatch = pathname.match(/^\/api\/tasks\/([0-9a-fA-F-]+)\/pomodoro$/);
+    if (req.method === 'POST' && pomMatch) {
+      let body;
+      try {
+        body = await readBody(req);
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+      const action = body.action;
+      try {
+        let task = null;
+        if (action === 'start') {
+          task = store.startPomodoro(pomMatch[1], body.plannedMin);
+        } else if (action === 'complete') {
+          task = store.completePomodoro(pomMatch[1]);
+        } else if (action === 'interrupt') {
+          task = store.interruptPomodoro(pomMatch[1], body.reason);
+        } else {
+          return sendJson(res, 400, { error: '无效的番茄操作' });
+        }
+        if (!task) return sendJson(res, 404, { error: '任务不存在' });
+        return sendJson(res, 200, { task });
+      } catch (e) {
+        if (e.code === 'CONFLICT') return sendJson(res, 409, { error: e.message });
+        return sendJson(res, 400, { error: e.message });
+      }
+    }
     // /api/tasks/:id
     const taskMatch = pathname.match(/^\/api\/tasks\/([0-9a-fA-F-]+)$/);
     if (taskMatch) {
@@ -154,6 +184,80 @@ function createRouter(store, options = {}) {
     if (req.method === 'GET' && pathname === '/api/archive') {
       const period = searchParams.get('period') || 'week';
       return sendJson(res, 200, store.archive(period));
+    }
+    // 番茄时长配置
+    if (pathname === '/api/pomodoro-config') {
+      if (req.method === 'GET') {
+        return sendJson(res, 200, Object.assign({ ok: true }, store.getPomodoroConfig()));
+      }
+      if (req.method === 'PUT') {
+        let body;
+        try {
+          body = await readBody(req);
+        } catch (e) {
+          return sendJson(res, 400, { error: e.message });
+        }
+        try {
+          const saved = store.setPomodoroConfig(body);
+          return sendJson(res, 200, Object.assign({ ok: true }, saved));
+        } catch (e) {
+          return sendJson(res, 400, { error: e.message });
+        }
+      }
+    }
+    // 大模型配置（密钥不回传，只回 hasKey）
+    if (pathname === '/api/llm-config') {
+      if (req.method === 'GET') {
+        const cfg = getLlmConfig(store);
+        return sendJson(res, 200, {
+          ok: true,
+          baseUrl: cfg.baseUrl,
+          model: cfg.model,
+          hasKey: !!cfg.apiKey,
+        });
+      }
+      if (req.method === 'PUT') {
+        let body;
+        try {
+          body = await readBody(req);
+        } catch (e) {
+          return sendJson(res, 400, { error: e.message });
+        }
+        const saved = saveLlmConfig(store, body);
+        return sendJson(res, 200, { ok: true, baseUrl: saved.baseUrl, model: saved.model, hasKey: !!saved.apiKey });
+      }
+    }
+    if (req.method === 'POST' && pathname === '/api/llm-test') {
+      const result = await llmTest(store);
+      return sendJson(res, 200, { ok: result.ok, message: result.message });
+    }
+    // 生成日报/周报/月报
+    if (req.method === 'POST' && pathname === '/api/reports/generate') {
+      let body;
+      try {
+        body = await readBody(req);
+      } catch (e) {
+        return sendJson(res, 400, { error: e.message });
+      }
+      const type = body.type;
+      if (!['daily', 'weekly', 'monthly'].includes(type)) {
+        return sendJson(res, 400, { error: '无效的报告类型' });
+      }
+      try {
+        const data = gather(store, type);
+        const prompt = buildPrompt(data);
+        const report = await llmChat(store, [
+          { role: 'system', content: '你是一个严谨、简洁的中文工作助手，只根据给定数据写作。' },
+          { role: 'user', content: prompt },
+        ], { timeoutMs: 90000, temperature: 0.4 });
+        return sendJson(res, 200, {
+          ok: true,
+          report,
+          meta: { type, doneCount: data.doneCount, planCount: data.planCount, periodLabel: data.periodLabel },
+        });
+      } catch (e) {
+        return sendJson(res, 500, { error: e.message || '生成报告失败' });
+      }
     }
     return sendJson(res, 404, { error: '接口不存在' });
   }

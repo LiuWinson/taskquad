@@ -1552,3 +1552,316 @@ ul {
   white-space: nowrap;
   flex-shrink: 0;
 }
+
+/* ---------- 番茄工作法 ---------- */
+.pomo-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  background: #fff7f0;
+  border: 1px solid #f5d3b3;
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin: 8px 0;
+}
+
+.pomo-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.pomo-label {
+  font-size: 12px;
+  color: #b45309;
+  font-weight: 600;
+}
+
+.pomo-task {
+  flex: 1;
+  min-width: 120px;
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pomo-time {
+  font-size: 16px;
+  font-weight: 700;
+  color: #c2410c;
+  font-variant-numeric: tabular-nums;
+}
+
+.pomo-total {
+  font-size: 11px;
+  color: #9a6a45;
+}
+
+.pomo-progress {
+  flex: 1 1 100%;
+  height: 4px;
+  background: #f3e0cf;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.pomo-progress-fill {
+  height: 100%;
+  background: #f97316;
+  transition: width 1s linear;
+}
+
+.pomo-btn {
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #fff;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.pomo-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pomo-btn.done {
+  background: #e6f6ec;
+  border-color: #9ad8b2;
+  color: #18794e;
+}
+
+.pomo-btn.stop {
+  background: #fdecec;
+  border-color: #f3c1c3;
+  color: var(--danger);
+}
+
+/* 休息阶段的番茄条 */
+.pomo-break {
+  background: #f0fbf4;
+  border-color: #b7e4c7;
+}
+
+.pomo-break .pomo-label {
+  color: #18794e;
+}
+
+.pomo-break .pomo-time {
+  color: #18794e;
+}
+
+.pomo-break .pomo-progress {
+  background: #d6f0e0;
+}
+
+.pomo-break .pomo-progress-fill {
+  background: #2e9e5b;
+}
+
+.pomo-long-break {
+  background: #eef6ff;
+  border-color: #b9d4fd;
+}
+
+.pomo-long-break .pomo-label,
+.pomo-long-break .pomo-time {
+  color: #1d4ed8;
+}
+
+.pomo-long-break .pomo-progress {
+  background: #dbe8fd;
+}
+
+.pomo-long-break .pomo-progress-fill {
+  background: #3b82f6;
+}
+
+/* 番茄时长设置网格 */
+.pomo-config-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.pomo-config-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pomo-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.45);
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+
+.pomo-pop {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px;
+  width: min(420px, 100%);
+  box-shadow: var(--shadow-lg);
+}
+
+.pomo-pop-title {
+  margin: 0 0 8px;
+  font-size: 16px;
+  color: var(--text);
+}
+
+.pomo-hint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.pomo-textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  resize: vertical;
+  font-family: inherit;
+  color: var(--text);
+}
+
+.pomo-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.pomo-task-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pomo-task-stats {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.pomo-start-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+}
+
+/* ---------- 报告视图 ---------- */
+.report-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.report-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.report-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.report-error {
+  background: #fdecec;
+  color: #c63a40;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+
+.report-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+}
+
+.report-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.report-body {
+  font-size: 14px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.copy-btn {
+  margin-top: 12px;
+  font-size: 12px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: #f7f8fa;
+  color: var(--text-secondary);
+}
+
+.report-empty {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  padding: 40px 0;
+}
+
+/* ---------- 大模型设置表单 ---------- */
+.llm-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.llm-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.llm-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.llm-has-key {
+  font-style: normal;
+  color: #18794e;
+  font-size: 11px;
+}
+
+.llm-no-key {
+  font-style: normal;
+  color: #b45309;
+  font-size: 11px;
+}
+
+.llm-ok {
+  color: #18794e !important;
+}
+
+.llm-err {
+  color: #c63a40 !important;
+}
