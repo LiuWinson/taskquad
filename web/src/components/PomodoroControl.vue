@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import type { Task, PomodoroRecord } from '../types';
 import { fmtCountdown } from '../time';
+import { useBackdropClose } from '../backdrop';
 
 const props = defineProps<{
   task: Task;
@@ -37,6 +38,9 @@ const progressPct = computed(() => {
 
 const showInterrupt = ref(false);
 const reason = ref('');
+const backdrop = useBackdropClose(() => {
+  showInterrupt.value = false;
+});
 
 function openInterrupt() {
   reason.value = '';
@@ -65,7 +69,12 @@ function confirmInterrupt() {
     <button class="pomo-btn stop" @click="openInterrupt">打断</button>
   </div>
 
-  <div v-if="showInterrupt" class="pomo-overlay" @click.self="showInterrupt = false">
+  <div
+    v-if="showInterrupt"
+    class="pomo-overlay"
+    @mousedown="backdrop.onBackdropDown"
+    @mouseup="backdrop.onBackdropUp"
+  >
     <div class="pomo-pop">
       <h3 class="pomo-pop-title">打断番茄</h3>
       <p class="pomo-hint">

@@ -7,8 +7,11 @@ import {
   testLlm,
   getPomodoroConfig,
   savePomodoroConfig,
+  getReportSkill,
+  saveReportSkill,
   type InfoResponse,
 } from '../api';
+import { useBackdropClose } from '../backdrop';
 
 defineProps<{
   connected: boolean;
@@ -34,6 +37,12 @@ const pomoBreak = ref(5);
 const pomoLongBreak = ref(15);
 const pomoLongEvery = ref(4);
 const pomoSaving = ref(false);
+const skillText = ref('');
+const skillDefault = ref('');
+const skillIsCustom = ref(false);
+const skillSaving = ref(false);
+
+const backdrop = useBackdropClose(() => emit('close'));
 
 async function load() {
   loading.value = true;
@@ -90,6 +99,47 @@ async function savePomodoro() {
   }
 }
 
+async function loadSkill() {
+  try {
+    const res = await getReportSkill();
+    skillText.value = res.skill;
+    skillDefault.value = res.defaultSkill;
+    skillIsCustom.value = res.isCustom;
+  } catch {
+    /* 忽略 */
+  }
+}
+
+async function saveSkill() {
+  skillSaving.value = true;
+  try {
+    // 若内容与默认一致则不标记为自定义（避免把默认文案"钉死"，后续默认更新仍可生效）
+    const sameAsDefault = skillText.value.trim() === skillDefault.value.trim();
+    const res = await saveReportSkill(sameAsDefault ? '' : skillText.value);
+    skillText.value = res.skill;
+    skillIsCustom.value = res.isCustom;
+    notify(sameAsDefault ? '已使用默认 Skill' : '报告 Skill 已保存');
+  } catch (e) {
+    notify(e instanceof Error ? e.message : '保存失败');
+  } finally {
+    skillSaving.value = false;
+  }
+}
+
+async function resetSkill() {
+  skillSaving.value = true;
+  try {
+    const res = await saveReportSkill('');
+    skillText.value = res.skill;
+    skillIsCustom.value = res.isCustom;
+    notify('已恢复默认 Skill');
+  } catch (e) {
+    notify(e instanceof Error ? e.message : '恢复失败');
+  } finally {
+    skillSaving.value = false;
+  }
+}
+
 async function saveLlm() {
   try {
     const res = await saveLlmConfig({
@@ -125,6 +175,7 @@ onMounted(() => {
   load();
   loadLlm();
   loadPomodoro();
+  loadSkill();
 });
 
 async function copyUrl(url: string) {
@@ -181,7 +232,11 @@ function sendTestNotification() {
 </script>
 
 <template>
-  <div class="modal-overlay" @click.self="emit('close')">
+  <div
+    class="modal-overlay"
+    @mousedown="backdrop.onBackdropDown"
+    @mouseup="backdrop.onBackdropUp"
+  >
     <div class="modal">
       <div class="modal-head">
         <h2 class="modal-title">设置</h2>
@@ -279,7 +334,32 @@ function sendTestNotification() {
               >{{ llmStatus }}</span
             >
             <span class="settings-note">
-              密钥只保存在本机电脑的配置文件里；DeepSeek 用 https://api.deepseek.com/v1 + deepseek-chat
+              密钥只保存在本机电脑的配置文件里，覆盖安装/升级不会丢失、也不会被新版覆盖；DeepSeek 用 https://api.deepseek.com/v1 + deepseek-chat
+            </span>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3 class="settings-section-title">报告风格 Skill（日报/周报/月报）</h3>
+          <div class="skill-form">
+            <textarea
+              v-model="skillText"
+              class="pomo-textarea skill-textarea"
+              :placeholder="skillDefault"
+            ></textarea>
+            <div class="settings-actions">
+              <button class="settings-btn" :disabled="skillSaving" @click="saveSkill">
+                {{ skillSaving ? '保存中…' : '保存 Skill' }}
+              </button>
+              <button class="settings-btn" @click="resetSkill">恢复默认</button>
+            </div>
+            <span class="settings-note">
+              默认 Skill 已填在框中可直接参考修改；生成报告时会把这段文本作为「报告风格要求」发给大模型。
+              <em v-if="!skillIsCustom" class="llm-has-key">（当前使用默认 Skill）</em>
+              <em v-else class="llm-no-key">（当前使用自定义 Skill）</em>
+            </span>
+            <span class="settings-note">
+              本页的大模型配置与 Skill 都保存在本机数据目录，覆盖安装/升级新版本不会丢失；Skill 以您的自定义版本优先，只有自定义为空时才使用默认文案。
             </span>
           </div>
         </div>

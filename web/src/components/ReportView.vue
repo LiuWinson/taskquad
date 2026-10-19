@@ -83,7 +83,7 @@ async function copyReport() {
     </div>
 
     <p class="report-hint">
-      报告依据「上一周期已完成任务」+「本周期计划」自动生成；首次使用请先到右上角「设置 → 大模型」填写 API Key（OpenAI 兼容接口，如 DeepSeek）。
+      报告依据「上一周期已完成任务」+「本周期计划」自动生成；首次使用请先到右上角「设置 → 大模型」填写 API Key（OpenAI 兼容接口，如 DeepSeek）。报告风格可在「设置 → 报告风格 Skill」中自定义。
     </p>
 
     <div v-if="loading" class="loading-wrap">

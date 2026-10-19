@@ -5,9 +5,9 @@ const path = require('path');
 const os = require('os');
 const { QUADRANTS } = require('./store');
 const { getLlmConfig, saveLlmConfig, llmTest, llmChat } = require('./llm');
-const { gather, buildPrompt } = require('./reports');
+const { gather, buildPrompt, DEFAULT_REPORT_SKILL } = require('./reports');
 
-const VERSION = '1.4.1';
+const VERSION = '1.4.6';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -245,9 +245,9 @@ function createRouter(store, options = {}) {
       }
       try {
         const data = gather(store, type);
-        const prompt = buildPrompt(data);
+        const prompt = buildPrompt(data, store.getReportSkill());
         const report = await llmChat(store, [
-          { role: 'system', content: '你是一个严谨、简洁的中文工作助手，只根据给定数据写作。' },
+          { role: 'system', content: '你是一个严谨、简洁的中文工作助手，只根据给定数据写作，严格遵守用户给出的报告风格要求（Skill）。' },
           { role: 'user', content: prompt },
         ], { timeoutMs: 90000, temperature: 0.4 });
         return sendJson(res, 200, {
@@ -257,6 +257,33 @@ function createRouter(store, options = {}) {
         });
       } catch (e) {
         return sendJson(res, 500, { error: e.message || '生成报告失败' });
+      }
+    }
+    // 报告风格 Skill（自定义或默认）
+    if (pathname === '/api/report-skill') {
+      if (req.method === 'GET') {
+        const custom = store.getReportSkill();
+        return sendJson(res, 200, {
+          ok: true,
+          skill: custom || DEFAULT_REPORT_SKILL,
+          defaultSkill: DEFAULT_REPORT_SKILL,
+          isCustom: !!custom,
+        });
+      }
+      if (req.method === 'PUT') {
+        let body;
+        try {
+          body = await readBody(req);
+        } catch (e) {
+          return sendJson(res, 400, { error: e.message });
+        }
+        const saved = store.setReportSkill(body.skill);
+        return sendJson(res, 200, {
+          ok: true,
+          skill: saved || DEFAULT_REPORT_SKILL,
+          defaultSkill: DEFAULT_REPORT_SKILL,
+          isCustom: !!saved,
+        });
       }
     }
     return sendJson(res, 404, { error: '接口不存在' });

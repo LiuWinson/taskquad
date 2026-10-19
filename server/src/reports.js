@@ -171,14 +171,30 @@ function gather(store, type) {
   };
 }
 
-function buildPrompt(data) {
+/**
+ * 默认报告风格 Skill（用户可自定义；作为默认值与参考示例）
+ */
+const DEFAULT_REPORT_SKILL = [
+  '你是一名严谨、务实的中文工作助手，负责为我撰写个人工作报告。',
+  '写作风格要求：',
+  '1. 开头用一句话概括上一周期的整体状态（最关键的成果）；',
+  '2. 进展部分用「完成事项 + 关键结果」的条目式表述，同类事项合并，每项不超过一行，避免流水账；',
+  '3. 计划部分按四象限优先级排列（重要且紧急最前，但文字中不要体现“重要”、“紧急”等信息，仅仅作为排序依据）；',
+  '4. 用词客观、可量化（引用完成项数与番茄数量），不夸大、不编造数据中没有的内容；',
+  '5. 结尾用一句话点出下一步关注点或风险；',
+  '6. 全文 200-350 字，Markdown 格式，直接输出正文。',
+  '7. 不要体现具体时间段信息，领导只关注结果',
+].join('\n');
+
+function buildPrompt(data, skill) {
   const typeLabel = TYPE_LABEL[data.type] || '日报';
   const prevLabel = data.type === 'weekly' ? '上周' : (data.type === 'monthly' ? '上月' : '前一日');
   const curLabel = data.periodLabel;
   const doneText = data.done.length ? data.done.join('\n') : '（无完成记录）';
   const planText = data.plan.length ? data.plan.join('\n') : '（暂无计划）';
+  const skillText = String(skill && skill.trim() ? skill : DEFAULT_REPORT_SKILL).trim();
   const requirements = [
-    '你是我的个人任务管理助手。请根据下面真实的任务数据，生成一份中文' + typeLabel + '（Markdown 格式）。',
+    '请根据下面真实的任务数据，生成一份中文' + typeLabel + '（Markdown 格式）。',
     '',
     '【' + prevLabel + '已完成】',
     doneText,
@@ -186,14 +202,15 @@ function buildPrompt(data) {
     '【' + curLabel + '计划】',
     planText,
     '',
-    '输出要求：',
-    '1. 结构固定：一是「' + prevLabel + '进展」二级标题，二是「' + curLabel + '计划」二级标题；',
-    '2. 进展部分按完成情况归纳 3-6 条要点，突出关键成果与投入（同类任务可合并，番茄数量可作为投入参考）；',
-    '3. 计划部分按四象限优先级排序（重要且紧急在前），每条一行、带任务名；',
-    '4. 语言简洁客观，只能使用上面提供的数据，不要编造；全文 200-350 字；',
-    '5. 直接输出报告正文，不要额外解释。',
+    '【报告风格要求（Skill）——必须遵守】',
+    skillText,
+    '',
+    '通用约束：',
+    '- 结构至少包含「' + prevLabel + '进展」与「' + curLabel + '计划」两个部分（标题可用用户 Skill 中指定的写法）；',
+    '- 只能使用上面提供的数据，严禁编造；',
+    '- 直接输出报告正文，不要额外解释。',
   ];
   return requirements.join('\n');
 }
 
-module.exports = { gather, buildPrompt, TYPE_LABEL };
+module.exports = { gather, buildPrompt, TYPE_LABEL, DEFAULT_REPORT_SKILL };

@@ -183,8 +183,16 @@
 
 - 动工窗口：daily=前一日完成 + 今天计划；weekly=上周完成 + 本周计划；monthly=上月完成 + 本月计划。
 - 素材含每项任务的象限、完成时间、番茄完成/中断数量；计划含计划时间段或截止时间。
+- **报告风格**：使用 `/api/report-skill` 的自定义 Skill（未自定义则用默认 Skill），作为「报告风格要求」注入 prompt。
 - 响应 `200`：`{ "ok": true, "report": "<Markdown 文本>", "meta": { "type", "doneCount", "planCount", "periodLabel" } }`
 - 未配置 API Key 或调用失败 → `500 { "error": "..." }`。
+
+### 3.12 GET /api/report-skill · PUT /api/report-skill
+报告风格 Skill（保存在 `config.json` 的 `reportSkill` 字段）：
+
+- `GET` → `{ "ok": true, "skill": "<当前生效文本>", "defaultSkill": "<默认文案>", "isCustom": true|false }`
+- `PUT { "skill": "..." }` → 保存自定义 Skill（trim 后 ≤4000 字）；**传空字符串表示恢复默认**（删除自定义）。返回同上结构。
+- 生效规则：**自定义优先**；自定义为空时使用内置默认 Skill。`config.json`（含 `llm`/`reportSkill`/`pomodoro`）随数据目录保存，覆盖安装/升级版本不会覆盖。
 
 ## 4. 提醒机制（服务端负责 Windows 桌面提醒）
 

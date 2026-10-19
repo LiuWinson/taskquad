@@ -246,6 +246,26 @@ export function testLlm(): Promise<LlmTestResponse> {
   return request<LlmTestResponse>('/api/llm-test', { method: 'POST', body: '{}' });
 }
 
+// ---------- 报告风格 Skill ----------
+
+export interface ReportSkillResponse {
+  ok: boolean;
+  skill: string;
+  defaultSkill: string;
+  isCustom: boolean;
+}
+
+export function getReportSkill(): Promise<ReportSkillResponse> {
+  return request<ReportSkillResponse>('/api/report-skill');
+}
+
+export function saveReportSkill(skill: string): Promise<ReportSkillResponse> {
+  return request<ReportSkillResponse>('/api/report-skill', {
+    method: 'PUT',
+    body: JSON.stringify({ skill }),
+  });
+}
+
 export function generateReport(type: ReportType): Promise<ReportResponse> {
   return request<ReportResponse>('/api/reports/generate', {
     method: 'POST',

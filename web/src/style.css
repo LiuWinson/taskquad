@@ -1692,6 +1692,19 @@ ul {
   gap: 4px;
 }
 
+/* 报告风格 Skill 表单 */
+.skill-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skill-textarea {
+  min-height: 120px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .pomo-overlay {
   position: fixed;
   inset: 0;

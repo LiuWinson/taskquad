@@ -4,6 +4,7 @@ import type { QuadrantKey, Task } from '../types';
 import { QUADRANTS } from '../types';
 import type { TaskPayload } from '../api';
 import { isoToLocalInput, localInputToIso, dateToLocalInput, pomodoroStats } from '../time';
+import { useBackdropClose } from '../backdrop';
 
 const props = defineProps<{
   task: Task | null;
@@ -21,6 +22,7 @@ const notify = inject<(message: string) => void>('notify', () => {});
 
 const isEdit = props.task !== null;
 const pomo = pomodoroStats(props.task?.pomodoros);
+const backdrop = useBackdropClose(() => emit('close'));
 
 const title = ref(props.task?.title ?? '');
 const note = ref(props.task?.note ?? '');
@@ -59,7 +61,11 @@ function save() {
 </script>
 
 <template>
-  <div class="modal-overlay" @click.self="emit('close')">
+  <div
+    class="modal-overlay"
+    @mousedown="backdrop.onBackdropDown"
+    @mouseup="backdrop.onBackdropUp"
+  >
     <div class="modal">
       <div class="modal-head">
         <h2 class="modal-title">{{ isEdit ? '编辑任务' : '新建任务' }}</h2>

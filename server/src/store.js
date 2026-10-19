@@ -104,6 +104,20 @@ class TaskStore {
     } catch (_) {}
   }
 
+  /** 报告风格 Skill：自定义文本或空（空表示使用默认 Skill） */
+  getReportSkill() {
+    return typeof this.config.reportSkill === 'string' ? this.config.reportSkill : '';
+  }
+
+  setReportSkill(skill) {
+    const s = skill == null ? '' : String(skill);
+    const trimmed = s.trim().slice(0, 4000);
+    if (trimmed) this.config.reportSkill = trimmed;
+    else delete this.config.reportSkill;
+    this.saveConfig();
+    return this.getReportSkill();
+  }
+
   /** 番茄时长配置（工作时间 / 短休息 / 长休息 / 几个番茄后长休息） */
   getPomodoroConfig() {
     const c = this.config.pomodoro || {};
@@ -150,8 +164,17 @@ class TaskStore {
     this._normalizeTasks();
     try {
       this.config = Object.assign({ port: 8788 }, JSON.parse(fs.readFileSync(this.configFile, 'utf8')));
-    } catch (_) {
-      /* 使用默认配置 */
+    } catch (e) {
+      /* 配置文件存在但无法解析：先另存一份损坏副本（绝不静默丢弃用户配置），再回落默认值 */
+      if (fs.existsSync(this.configFile)) {
+        try {
+          const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+          fs.copyFileSync(this.configFile, path.join(this.dataDir, `config.corrupt.${stamp}.json`));
+          console.error('[store] config.json 解析失败，已另存 config.corrupt.*.json，本次使用默认配置:', e.message);
+        } catch (_) {
+          /* 备份失败也不阻断启动 */
+        }
+      }
     }
   }
 

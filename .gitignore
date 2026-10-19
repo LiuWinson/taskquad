@@ -31,3 +31,5 @@ tools/.migrate-data/
 # 发布流程临时文件
 tools/_release_*
 tools/_upload_*
+tools/.*-test/
+tools/_persist_*

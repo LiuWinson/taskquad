@@ -4,6 +4,7 @@ import type { Task, RepeatType } from '../types';
 import { quadrantOf } from '../types';
 import { matchesRepeat, repeatLabel, pomodoroStats } from '../time';
 import { setDrag, getDrag, clearDrag as clearBus } from '../dragBus';
+import { useBackdropClose } from '../backdrop';
 
 const props = defineProps<{
   tasks: Task[];
@@ -122,10 +123,20 @@ function blockCovering(min: number, excludeId: string | null = null): Task | nul
   return null;
 }
 
+/** 时钟源：每 15 秒刷新一次，"现在"红线与待反馈判断都依赖它（纯 computed 会导致时间冻结） */
+const clockTick = ref(Date.now());
+
 const nowMin = computed(() => {
+  void clockTick.value; // 建立响应式依赖
   const d = new Date();
   return d.getHours() * 60 + d.getMinutes();
 });
+
+function startClock() {
+  window.setInterval(() => {
+    clockTick.value = Date.now();
+  }, 15000);
+}
 
 function isPending(t: Task): boolean {
   if (typeof t.planEnd !== 'number' || t.planEnd > nowMin.value || !isToday.value) return false;
@@ -178,6 +189,7 @@ function onKeydown(e: KeyboardEvent) {
 onMounted(() => {
   window.addEventListener('dragend', clearLocalDrag);
   window.addEventListener('keydown', onKeydown);
+  startClock();
 });
 onUnmounted(() => {
   window.removeEventListener('dragend', clearLocalDrag);
@@ -436,6 +448,9 @@ function onHandleCancel() {
 
 // ---------- 空槽位点按：从任务列表选择（触屏/无拖拽场景） ----------
 const pickSlot = ref<number | null>(null);
+const pickBackdrop = useBackdropClose(() => {
+  pickSlot.value = null;
+});
 const pickable = computed<Task[]>(() =>
   props.tasks.filter(
     (t) => !t.completed && !(t.planDate === dateStr.value && typeof t.planStart === 'number'),
@@ -453,6 +468,9 @@ const editStart = ref(0);
 const editEnd = ref(30);
 const editProgress = ref(50);
 const editRepeat = ref<RepeatType>('none');
+const editorBackdrop = useBackdropClose(() => {
+  closeEditor();
+});
 
 function openEditor(t: Task) {
   editing.value = t;
@@ -736,7 +754,12 @@ function blockRect(t: Task): { top: string; height: string; hidden: boolean } {
     </div>
 
     <!-- 空槽位 → 选任务安排 -->
-    <div v-if="pickSlot != null" class="plan-overlay" @click.self="pickSlot = null">
+    <div
+      v-if="pickSlot != null"
+      class="plan-overlay"
+      @mousedown="pickBackdrop.onBackdropDown"
+      @mouseup="pickBackdrop.onBackdropUp"
+    >
       <div class="plan-pop">
         <div class="plan-pop-head">
           <strong>安排任务到 {{ fmtMin(pickSlot) }}-{{ fmtMin(pickSlot + 30) }}</strong>
@@ -762,7 +785,12 @@ function blockRect(t: Task): { top: string; height: string; hidden: boolean } {
     </div>
 
     <!-- 计划块编辑 -->
-    <div v-if="editing" class="plan-overlay" @click.self="closeEditor">
+    <div
+      v-if="editing"
+      class="plan-overlay"
+      @mousedown="editorBackdrop.onBackdropDown"
+      @mouseup="editorBackdrop.onBackdropUp"
+    >
       <div class="plan-pop">
         <div class="plan-pop-head">
           <strong>{{ editing.title }}</strong>
