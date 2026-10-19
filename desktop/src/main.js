@@ -20,6 +20,10 @@ function showMainWindow() {
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
+  // 通知前端窗口已显示（跨天校准"今天"、刷新计划等）
+  if (!mainWindow.isDestroyed() && mainWindow.webContents) {
+    mainWindow.webContents.send('window-shown');
+  }
 }
 
 function toggleMainWindow() {

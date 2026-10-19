@@ -27,3 +27,6 @@ harmonyos/entry/src/ohosTest/
 tools/.move-test/
 tools/.plan-test-data/
 tools/.migrate-data/
+
+# 发布流程临时文件
+tools/_release_*

@@ -60,6 +60,22 @@ async function checkHealth() {
   } catch {
     connected.value = false;
   }
+  syncDay();
+}
+
+// ---------- "今天"跨天检测：托盘常驻数天后打开窗口，自动跟随到最新今天 ----------
+const todayKey = ref(localDateStr());
+
+function localDateStr(d: Date = new Date()): string {
+  const p = (x: number) => String(x).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+function syncDay() {
+  const t = localDateStr();
+  if (t !== todayKey.value) {
+    todayKey.value = t;
+  }
 }
 
 // ---------- 响应式布局：≥900px 显示右侧每日计划栏，窄屏用「计划」标签页 ----------
@@ -74,11 +90,19 @@ onMounted(() => {
   healthTimer = setInterval(checkHealth, 15000);
   updateWide();
   window.addEventListener('resize', updateWide);
+  // 窗口获得焦点 / 从托盘恢复显示 / 标签页重新可见时立即校准今天
+  window.addEventListener('focus', syncDay);
+  document.addEventListener('visibilitychange', syncDay);
+  if (window.desktop && typeof window.desktop.onWindowShown === 'function') {
+    window.desktop.onWindowShown(syncDay);
+  }
 });
 
 onUnmounted(() => {
   if (healthTimer) clearInterval(healthTimer);
   window.removeEventListener('resize', updateWide);
+  window.removeEventListener('focus', syncDay);
+  document.removeEventListener('visibilitychange', syncDay);
 });
 
 // ---------- 新建/编辑对话框 ----------
@@ -335,6 +359,7 @@ const settingsOpen = ref(false);
         <DailyPlanView
           v-else
           :tasks="tasks"
+          :today-key="todayKey"
           @schedule="planSchedule"
           @move-block="planMoveBlock"
           @move-blocks="planMoveBlocks"
@@ -352,6 +377,7 @@ const settingsOpen = ref(false);
       <aside v-if="wide" class="plan-side">
         <DailyPlanView
           :tasks="tasks"
+          :today-key="todayKey"
           @schedule="planSchedule"
           @move-block="planMoveBlock"
           @move-blocks="planMoveBlocks"

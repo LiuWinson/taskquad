@@ -5,3 +5,11 @@ declare module '*.vue' {
   const component: DefineComponent<{}, {}, any>;
   export default component;
 }
+
+interface Window {
+  desktop?: {
+    isDesktop: boolean;
+    electronVersion: string;
+    onWindowShown?: (cb: () => void) => void;
+  };
+}

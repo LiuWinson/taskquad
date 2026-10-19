@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import type { Task, RepeatType } from '../types';
 import { quadrantOf } from '../types';
 import { matchesRepeat, repeatLabel } from '../time';
@@ -7,6 +7,8 @@ import { setDrag, getDrag, clearDrag as clearBus } from '../dragBus';
 
 const props = defineProps<{
   tasks: Task[];
+  /** App 层维护的"今天"（跨天时更新），用于自动跟随到最新今天 */
+  todayKey: string;
 }>();
 
 const emit = defineEmits<{
@@ -44,6 +46,16 @@ function todayStr(): string {
   return fmtDate(new Date());
 }
 const dateStr = ref(todayStr());
+
+// 跨天/重新打开窗口时：若仍停留在旧"今天"，自动跟随到新今天；手动翻到别的日期则不打扰
+watch(
+  () => props.todayKey,
+  (n, o) => {
+    if (o && dateStr.value === o) {
+      dateStr.value = n;
+    }
+  },
+);
 
 function shiftDay(delta: number) {
   const d = new Date(dateStr.value + 'T00:00:00');
