@@ -7,7 +7,7 @@ const { QUADRANTS } = require('./store');
 const { getLlmConfig, saveLlmConfig, llmTest, llmChat } = require('./llm');
 const { gather, buildPrompt, DEFAULT_REPORT_SKILL } = require('./reports');
 
-const VERSION = '1.4.6';
+const VERSION = '1.4.9';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -198,7 +198,10 @@ function createRouter(store, options = {}) {
           return sendJson(res, 400, { error: e.message });
         }
         try {
-          const saved = store.setPomodoroConfig(body);
+          // { reset: true } = 恢复内置默认值
+          const saved = body && body.reset === true
+            ? store.resetPomodoroConfig()
+            : store.setPomodoroConfig(body);
           return sendJson(res, 200, Object.assign({ ok: true }, saved));
         } catch (e) {
           return sendJson(res, 400, { error: e.message });

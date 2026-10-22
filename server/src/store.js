@@ -152,6 +152,13 @@ class TaskStore {
     return next;
   }
 
+  /** 恢复番茄设置为内置默认值（清空自定义） */
+  resetPomodoroConfig() {
+    delete this.config.pomodoro;
+    this.saveConfig();
+    return this.getPomodoroConfig();
+  }
+
   _load() {
     fs.mkdirSync(this.dataDir, { recursive: true });
     this._backupIfChanged();

@@ -200,6 +200,14 @@ export function savePomodoroConfig(payload: {
   });
 }
 
+/** 恢复番茄设置为内置默认值 */
+export function resetPomodoroConfig(): Promise<PomodoroConfig> {
+  return request<PomodoroConfig>('/api/pomodoro-config', {
+    method: 'PUT',
+    body: JSON.stringify({ reset: true }),
+  });
+}
+
 // ---------- 大模型配置与报告 ----------
 
 export interface LlmConfigResponse {

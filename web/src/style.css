@@ -1692,6 +1692,26 @@ ul {
   gap: 4px;
 }
 
+/* 番茄到点弹窗 */
+.pomo-done-pop {
+  text-align: center;
+}
+
+.pomo-done-icon {
+  font-size: 40px;
+  line-height: 1;
+  margin-bottom: 6px;
+}
+
+.pomo-done-pop .pomo-hint {
+  font-size: 13px;
+}
+
+.pomo-done-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 /* 报告风格 Skill 表单 */
 .skill-form {
   display: flex;

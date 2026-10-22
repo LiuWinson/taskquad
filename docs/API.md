@@ -169,6 +169,7 @@
 - `GET` → `{ "ok": true, "workMin": 25, "breakMin": 5, "longBreakMin": 15, "longBreakEvery": 4 }`
 - `PUT { workMin?, breakMin?, longBreakMin?, longBreakEvery? }` → 校验并保存，返回同上：
   - `workMin` 5..120、`breakMin` 1..60、`longBreakMin` 1..120、`longBreakEvery` 1..12（整数），越界 `400`。
+  - `PUT { "reset": true }` → **恢复内置默认值**（删除 `config.json` 中的 `pomodoro` 自定义配置），返回默认值。
 - 前端据此外显休息阶段：每完成 `longBreakEvery` 个番茄后进入 `longBreakMin` 分钟大休息，否则 `breakMin` 分钟短休息（按当天已完成番茄数计算）。
 
 ### 3.10 GET /api/llm-config · PUT /api/llm-config · POST /api/llm-test

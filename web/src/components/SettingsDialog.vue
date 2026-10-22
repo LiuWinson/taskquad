@@ -7,6 +7,7 @@ import {
   testLlm,
   getPomodoroConfig,
   savePomodoroConfig,
+  resetPomodoroConfig,
   getReportSkill,
   saveReportSkill,
   type InfoResponse,
@@ -19,6 +20,7 @@ defineProps<{
 
 const emit = defineEmits<{
   close: [];
+  pomodoroSaved: [];
 }>();
 
 const notify = inject<(message: string) => void>('notify', () => {});
@@ -92,8 +94,26 @@ async function savePomodoro() {
     pomoLongBreak.value = cfg.longBreakMin;
     pomoLongEvery.value = cfg.longBreakEvery;
     notify('番茄设置已保存');
+    emit('pomodoroSaved');
   } catch (e) {
     notify(e instanceof Error ? e.message : '保存失败');
+  } finally {
+    pomoSaving.value = false;
+  }
+}
+
+async function resetPomodoro() {
+  pomoSaving.value = true;
+  try {
+    const cfg = await resetPomodoroConfig();
+    pomoWork.value = cfg.workMin;
+    pomoBreak.value = cfg.breakMin;
+    pomoLongBreak.value = cfg.longBreakMin;
+    pomoLongEvery.value = cfg.longBreakEvery;
+    notify('番茄设置已恢复默认');
+    emit('pomodoroSaved');
+  } catch (e) {
+    notify(e instanceof Error ? e.message : '恢复默认失败');
   } finally {
     pomoSaving.value = false;
   }
@@ -297,9 +317,12 @@ function sendTestNotification() {
             <button class="settings-btn" :disabled="pomoSaving" @click="savePomodoro">
               {{ pomoSaving ? '保存中…' : '保存番茄设置' }}
             </button>
+            <button class="settings-btn" :disabled="pomoSaving" @click="resetPomodoro">
+              恢复默认
+            </button>
           </div>
           <span class="settings-note">
-            默认 25 分钟工作 / 5 分钟短休息 / 每 4 个番茄后 15 分钟大休息；开始番茄时使用此工作时间
+            默认 25 分钟工作 / 5 分钟短休息 / 每 4 个番茄后 15 分钟大休息；开始番茄时使用此工作时间；「恢复默认」会清空自定义值
           </span>
         </div>
 

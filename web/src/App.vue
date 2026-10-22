@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, provide } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted, provide } from 'vue';
 import type { Task, QuadrantKey } from './types';
 import {
   getTasks,
@@ -23,6 +23,7 @@ import SettingsDialog from './components/SettingsDialog.vue';
 import PomodoroControl from './components/PomodoroControl.vue';
 import BreakBar from './components/BreakBar.vue';
 import ReportView from './components/ReportView.vue';
+import { useBackdropClose } from './backdrop';
 
 type TabKey = 'quadrant' | 'list' | 'archive' | 'plan' | 'report';
 
@@ -334,6 +335,14 @@ const breakState = ref<{
   taskId: string;
 } | null>(null);
 
+// 休息结束弹窗
+const breakDone = ref<{ long: boolean; totalMin: number; taskTitle: string; taskId: string } | null>(
+  null,
+);
+const breakDoneBackdrop = useBackdropClose(() => {
+  breakDone.value = null;
+});
+
 /** 今日已完成的番茄数（用于判断是否该长休息） */
 function completedPomodorosToday(): number {
   const today = todayKey.value;
@@ -377,6 +386,7 @@ async function handleStartPomodoro(taskId: string, minutes?: number) {
 async function handleCompletePomodoro() {
   const cur = activePomodoro.value;
   if (!cur) return;
+  handledPomoIds.add(cur.record.id);
   try {
     await completePomodoro(cur.task.id);
     await reload();
@@ -390,6 +400,7 @@ async function handleCompletePomodoro() {
 async function handleInterruptPomodoro(reason: string) {
   const cur = activePomodoro.value;
   if (!cur) return;
+  handledPomoIds.add(cur.record.id);
   try {
     await interruptPomodoro(cur.task.id, reason);
     notify('已打断，原因已记录');
@@ -399,8 +410,89 @@ async function handleInterruptPomodoro(reason: string) {
   }
 }
 
+// ---------- 番茄到点弹窗（工作时间内到点主动完结并弹窗，不依赖服务端轮询） ----------
+const handledPomoIds = new Set<string>();
+const pomoDone = ref<{ taskTitle: string; taskId: string; plannedMin: number } | null>(null);
+const pomoDoneBackdrop = useBackdropClose(() => {
+  pomoDone.value = null;
+});
+let pomoDeadlineTimer: ReturnType<typeof setTimeout> | null = null;
+
+function clearPomoDeadline() {
+  if (pomoDeadlineTimer) {
+    clearTimeout(pomoDeadlineTimer);
+    pomoDeadlineTimer = null;
+  }
+}
+
+function schedulePomoDeadline() {
+  clearPomoDeadline();
+  const cur = activePomodoro.value;
+  if (!cur || handledPomoIds.has(cur.record.id)) return;
+  const startMs = new Date(cur.record.startAt).getTime();
+  const endMs = startMs + cur.record.plannedMin * 60000;
+  const delay = Math.max(0, endMs - Date.now());
+  pomoDeadlineTimer = setTimeout(() => {
+    void firePomodoroDone(cur.task.id, cur.record.id);
+  }, delay);
+}
+
+async function firePomodoroDone(taskId: string, recordId: string) {
+  if (handledPomoIds.has(recordId)) return;
+  handledPomoIds.add(recordId);
+  const task = tasks.value.find((t) => t.id === taskId);
+  const plannedMin =
+    (task?.pomodoros || []).find((p) => p.id === recordId)?.plannedMin ?? pomoConfig.value.workMin;
+  try {
+    await completePomodoro(taskId);
+  } catch {
+    /* 服务端可能已自动完结，忽略 */
+  }
+  await reload();
+  pomoDone.value = {
+    taskTitle: task?.title ?? '当前任务',
+    taskId,
+    plannedMin,
+  };
+}
+
+function startBreakFromDone() {
+  const d = pomoDone.value;
+  pomoDone.value = null;
+  if (d) startBreak(d.taskTitle, d.taskId);
+}
+
+function startNextFromDone() {
+  const d = pomoDone.value;
+  pomoDone.value = null;
+  if (d) handleStartPomodoro(d.taskId);
+}
+
+// 每当有进行中番茄（或它结束）时重新计算到点定时器
+watch(
+  activePomodoro,
+  () => {
+    schedulePomoDeadline();
+  },
+  { immediate: true },
+);
+
 function handleBreakEnded() {
-  notify('休息结束，可以开始下一个番茄了');
+  const cur = breakState.value;
+  if (!cur) return;
+  breakState.value = null;
+  breakDone.value = {
+    long: cur.long,
+    totalMin: cur.totalMin,
+    taskTitle: cur.taskTitle,
+    taskId: cur.taskId,
+  };
+}
+
+function startNextFromBreakDone() {
+  const d = breakDone.value;
+  breakDone.value = null;
+  if (d) handleStartPomodoro(d.taskId);
 }
 
 function handleBreakNext() {
@@ -485,6 +577,48 @@ const settingsOpen = ref(false);
       @ended="handleBreakEnded"
     />
 
+    <div
+      v-if="pomoDone"
+      class="pomo-overlay"
+      @mousedown="pomoDoneBackdrop.onBackdropDown"
+      @mouseup="pomoDoneBackdrop.onBackdropUp"
+    >
+      <div class="pomo-pop pomo-done-pop">
+        <div class="pomo-done-icon">🍅</div>
+        <h3 class="pomo-pop-title">番茄时间到！</h3>
+        <p class="pomo-hint">
+          「{{ pomoDone.taskTitle }}」已完成一个 {{ pomoDone.plannedMin }} 分钟的番茄。
+          休息一下，再开始下一个？
+        </p>
+        <div class="pomo-actions">
+          <button class="pomo-btn" @click="pomoDone = null">关闭</button>
+          <button class="pomo-btn stop" @click="startNextFromDone">开始下一个番茄</button>
+          <button class="pomo-btn done" @click="startBreakFromDone">开始休息</button>
+        </div>
+      </div>
+    </div>
+
+    <div
+      v-if="breakDone"
+      class="pomo-overlay"
+      @mousedown="breakDoneBackdrop.onBackdropDown"
+      @mouseup="breakDoneBackdrop.onBackdropUp"
+    >
+      <div class="pomo-pop pomo-done-pop">
+        <div class="pomo-done-icon">{{ breakDone.long ? '☕' : '🍵' }}</div>
+        <h3 class="pomo-pop-title">{{ breakDone.long ? '大休息结束' : '短休息结束' }}</h3>
+        <p class="pomo-hint">
+          已经休息了 {{ breakDone.totalMin }} 分钟。准备好开始下一个番茄了吗？
+          <br />
+          <span class="pomo-done-sub">下一个番茄仍属于「{{ breakDone.taskTitle }}」</span>
+        </p>
+        <div class="pomo-actions">
+          <button class="pomo-btn" @click="breakDone = null">关闭</button>
+          <button class="pomo-btn done" @click="startNextFromBreakDone">开始下一个番茄</button>
+        </div>
+      </div>
+    </div>
+
     <div class="app-body">
       <main class="content">
         <QuadrantView
@@ -559,6 +693,7 @@ const settingsOpen = ref(false);
       v-if="settingsOpen"
       :connected="connected"
       @close="settingsOpen = false"
+      @pomodoro-saved="loadPomoConfig"
     />
 
     <transition name="toast">
