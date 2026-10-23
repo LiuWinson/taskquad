@@ -61,15 +61,24 @@ async function reload() {
 // ---------- 连接状态（每 15 秒 GET /api/health） ----------
 let healthTimer: ReturnType<typeof setInterval> | null = null;
 
+// 当前版本号（显示在窗口标题上）
+const appVersion = ref('');
+
 async function checkHealth() {
   try {
-    await getHealth();
+    const h = await getHealth();
     connected.value = true;
+    if (h && typeof h.version === 'string' && h.version) appVersion.value = h.version;
   } catch {
     connected.value = false;
   }
   syncDay();
 }
+
+// 窗口标题同步为「任务四象限V1.5.1」（桌面端任务栏/窗口栏也会跟着显示）
+watch(appVersion, (v) => {
+  document.title = v ? `任务四象限V${v}` : '任务四象限';
+}, { immediate: true });
 
 // ---------- "今天"跨天检测：托盘常驻数天后打开窗口，自动跟随到最新今天 ----------
 const todayKey = ref(localDateStr());
@@ -343,6 +352,15 @@ const breakDoneBackdrop = useBackdropClose(() => {
   breakDone.value = null;
 });
 
+// 休息结束的独立计时器（精确到点，避免窗口隐藏时渲染定时器被节流而延迟）
+let breakEndTimer: ReturnType<typeof setTimeout> | null = null;
+function clearBreakEndTimer() {
+  if (breakEndTimer) {
+    clearTimeout(breakEndTimer);
+    breakEndTimer = null;
+  }
+}
+
 /** 今日已完成的番茄数（用于判断是否该长休息） */
 function completedPomodorosToday(): number {
   const today = todayKey.value;
@@ -363,16 +381,23 @@ function startBreak(taskTitle: string, taskId: string) {
   const doneToday = completedPomodorosToday();
   const isLong = pomoConfig.value.longBreakEvery > 0 && doneToday > 0 &&
     doneToday % pomoConfig.value.longBreakEvery === 0;
+  const totalMin = isLong ? pomoConfig.value.longBreakMin : pomoConfig.value.breakMin;
   breakState.value = {
     long: isLong,
-    totalMin: isLong ? pomoConfig.value.longBreakMin : pomoConfig.value.breakMin,
+    totalMin,
     startedAt: Date.now(),
     taskTitle,
     taskId,
   };
+  // 独立精确计时：到点即弹（不依赖 BreakBar 的 1 秒刷新，避免窗口隐藏时定时器被节流导致延迟）
+  clearBreakEndTimer();
+  breakEndTimer = setTimeout(() => {
+    if (breakState.value) handleBreakEnded();
+  }, totalMin * 60000);
 }
 
 async function handleStartPomodoro(taskId: string, minutes?: number) {
+  clearBreakEndTimer();
   breakState.value = null; // 开始工作即结束休息阶段
   try {
     await startPomodoro(taskId, minutes);
@@ -437,12 +462,26 @@ function schedulePomoDeadline() {
   }, delay);
 }
 
+// 系统级提醒（桌面端）：系统通知 + 右下角置顶小窗；浏览器端退化为无操作
+function desktopAlert(title: string, body: string, icon = '🍅') {
+  try {
+    if (window.desktop && typeof window.desktop.alert === 'function') {
+      window.desktop.alert({ title, body, icon });
+    }
+  } catch {
+    /* 忽略 */
+  }
+}
+
 async function firePomodoroDone(taskId: string, recordId: string) {
   if (handledPomoIds.has(recordId)) return;
   handledPomoIds.add(recordId);
   const task = tasks.value.find((t) => t.id === taskId);
   const plannedMin =
     (task?.pomodoros || []).find((p) => p.id === recordId)?.plannedMin ?? pomoConfig.value.workMin;
+  const taskTitle = task?.title ?? '当前任务';
+  // 先发系统级提醒（窗口被遮挡/在托盘时也能看到），再更新界面
+  desktopAlert('🍅 番茄时间到！', `「${taskTitle}」已完成一个 ${plannedMin} 分钟的番茄，休息一下？`);
   try {
     await completePomodoro(taskId);
   } catch {
@@ -450,7 +489,7 @@ async function firePomodoroDone(taskId: string, recordId: string) {
   }
   await reload();
   pomoDone.value = {
-    taskTitle: task?.title ?? '当前任务',
+    taskTitle,
     taskId,
     plannedMin,
   };
@@ -480,7 +519,13 @@ watch(
 function handleBreakEnded() {
   const cur = breakState.value;
   if (!cur) return;
+  clearBreakEndTimer();
   breakState.value = null;
+  desktopAlert(
+    cur.long ? '☕ 大休息结束' : '🍵 短休息结束',
+    `已经休息了 ${cur.totalMin} 分钟，可以开始下一个番茄了`,
+    cur.long ? '☕' : '🍵',
+  );
   breakDone.value = {
     long: cur.long,
     totalMin: cur.totalMin,
@@ -497,8 +542,14 @@ function startNextFromBreakDone() {
 
 function handleBreakNext() {
   const cur = breakState.value;
+  clearBreakEndTimer();
   breakState.value = null;
   if (cur) handleStartPomodoro(cur.taskId);
+}
+
+function handleBreakSkip() {
+  clearBreakEndTimer();
+  breakState.value = null;
 }
 
 // ---------- 设置对话框 ----------
@@ -509,7 +560,9 @@ const settingsOpen = ref(false);
   <div class="app">
     <header class="topbar">
       <div class="topbar-left">
-        <h1 class="app-title">任务四象限</h1>
+        <h1 class="app-title">
+          任务四象限<span v-if="appVersion" class="app-version">V{{ appVersion }}</span>
+        </h1>
         <nav class="tabs">
           <button
             class="tab"
@@ -572,7 +625,7 @@ const settingsOpen = ref(false);
       :total-min="breakState.totalMin"
       :started-at="breakState.startedAt"
       :task-title="breakState.taskTitle"
-      @skip="breakState = null"
+      @skip="handleBreakSkip"
       @next="handleBreakNext"
       @ended="handleBreakEnded"
     />

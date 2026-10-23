@@ -10,4 +10,8 @@ contextBridge.exposeInMainWorld('desktop', {
   onWindowShown: (cb) => {
     ipcRenderer.on('window-shown', () => cb());
   },
+  // 系统级提醒：系统通知 + 右下角置顶小窗（番茄到点/休息结束用）
+  alert: (payload) => {
+    ipcRenderer.send('pomodoro-alert', payload || {});
+  },
 });

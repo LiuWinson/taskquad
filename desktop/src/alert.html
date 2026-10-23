@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>番茄提醒</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      height: 100%;
+      font-family: "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+      -webkit-user-select: none;
+      user-select: none;
+      overflow: hidden;
+    }
+    body {
+      background: transparent;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .card {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 22px 28px 18px;
+      background: #fffdf9;
+      border: 3px solid #f59e0b;
+      border-radius: 18px;
+      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
+      animation: pop 220ms ease-out;
+      cursor: pointer;
+    }
+    @keyframes pop {
+      from { transform: scale(0.88); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+    .head { display: flex; align-items: center; gap: 12px; }
+    .icon { font-size: 40px; line-height: 1; }
+    .title { font-size: 26px; font-weight: 800; color: #b45309; letter-spacing: 0.5px; }
+    .body { font-size: 16px; color: #6b4a2f; line-height: 1.6; text-align: center; }
+    .ok {
+      margin-top: 6px;
+      padding: 9px 34px;
+      font-size: 15px;
+      font-weight: 600;
+      color: #fff;
+      background: #f59e0b;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+    }
+    .ok:hover { background: #d97706; }
+    .hint { font-size: 11px; color: #a98a68; }
+  </style>
+</head>
+<body>
+  <div class="card" id="card">
+    <div class="head">
+      <span class="icon" id="icon">🍅</span>
+      <span class="title" id="title">番茄时间到！</span>
+    </div>
+    <div class="body" id="body">该休息一下了。</div>
+    <button class="ok" id="ok">知道了</button>
+    <div class="hint">点击卡片或按 Esc 关闭</div>
+  </div>
+  <script>
+    document.getElementById('card').addEventListener('click', function () { window.close(); });
+    document.getElementById('ok').addEventListener('click', function (e) {
+      e.stopPropagation();
+      window.close();
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' || e.key === 'Enter') window.close();
+    });
+  </script>
+</body>
+</html>

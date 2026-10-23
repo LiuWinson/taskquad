@@ -7,7 +7,7 @@ const { QUADRANTS } = require('./store');
 const { getLlmConfig, saveLlmConfig, llmTest, llmChat } = require('./llm');
 const { gather, buildPrompt, DEFAULT_REPORT_SKILL } = require('./reports');
 
-const VERSION = '1.4.9';
+const VERSION = '1.5.3';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
